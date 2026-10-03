@@ -61,21 +61,23 @@ def main():
     wb = Workbook()
     ws = wb.active
     ws.title = "Goomer e Cardápio Web"
-    cab = ["Plataforma", "Categoria", "Nome", "Link do cardápio", "Bairro", "Endereço", "Telefone", "Nota Google", "Google Maps", "Observação"]
+    cab = ["Status", "Plataforma", "Categoria", "Nome", "Link do cardápio", "Bairro", "Endereço", "Telefone", "Nota Google", "Google Maps", "Observação"]
     ws.append(cab)
+    ordem = {"Ativa": 0, "Conferir": 1}
+    lojas.sort(key=lambda l: ordem.get(l["status"], 2))
     for c in ws[1]:
         c.font, c.fill = Font(name="Arial", bold=True, color="FFFFFF"), PatternFill("solid", fgColor="C0392B")
     for l in lojas:
-        ws.append([l["plataforma"], l["categoria"], l["nome"], l["link"], l["bairro"], l["endereco"], l["telefone"], l["nota"], l["maps"], l["obs"]])
+        ws.append([l["status"], l["plataforma"], l["categoria"], l["nome"], l["link"], l["bairro"], l["endereco"], l["telefone"], l["nota"], l["maps"], l["obs"]])
     for row in ws.iter_rows(min_row=2):
         for c in row:
             c.font = Font(name="Arial", size=10)
-        for i in (3, 8):
+        for i in (4, 9):
             if row[i].value:
                 row[i].hyperlink, row[i].font = row[i].value, Font(name="Arial", size=10, color="0563C1", underline="single")
-    for col, w in zip("ABCDEFGHIJ", [14, 24, 34, 48, 18, 50, 16, 12, 40, 45]):
+    for col, w in zip("ABCDEFGHIJK", [14, 14, 24, 34, 48, 18, 50, 16, 12, 40, 45]):
         ws.column_dimensions[col].width = w
-    ws.freeze_panes, ws.auto_filter.ref = "D2", ws.dimensions
+    ws.freeze_panes, ws.auto_filter.ref = "E2", ws.dimensions
     wb.save("goomer_cardapioweb_joinville.xlsx")
 
     # PDF
@@ -109,17 +111,26 @@ def main():
         c.drawString(28, 16, f"Goomer e Cardápio Web em Joinville · {DATA}")
         c.drawRightString(landscape(A4)[0] - 28, 16, f"Página {doc.page}")
 
+    ativas = [l for l in lojas if l["status"] == "Ativa"]
+    conferir = [l for l in lojas if l["status"] == "Conferir"]
+    inativas = [l for l in lojas if l["status"] not in ("Ativa", "Conferir")]
     story = [Paragraph("Restaurantes de Joinville no Goomer e no Cardápio Web", h1),
-             Paragraph(f"Levantamento de {DATA}: links encontrados no Google Places (busca de sushi, pizzaria e hamburgueria) "
-                       "e em buscas na web pelas páginas \"Cardápio e Delivery em Joinville\" (Goomer) e \"Plataforma fornecida por "
-                       "Cardápio Web\". Bairro, telefone e nota vêm do Google Maps; ficam em branco quando o restaurante não foi "
-                       "encontrado lá com segurança. Os links são clicáveis.", txt)]
+             Paragraph(f"Levantamento de {DATA}. Lojas encontradas no Google Places e em buscas na web, verificadas uma a uma: "
+                       "no Goomer, só ficam no ar as lojas com plano pago e cardápio com produtos (as do plano grátis mostram "
+                       "a página de erro 404); no Cardápio Web, foi conferido que a página da loja carrega. Bairro, telefone e "
+                       "nota vêm do Google Maps. Os links são clicáveis.", txt),
+             Paragraph(f"Ativas: {len(ativas)} · A conferir: {len(conferir)} · Inativas (404): {len(inativas)}", h3)]
     for plat in ("Cardápio Web", "Goomer"):
-        grupo = [l for l in lojas if l["plataforma"] == plat]
-        story.append(Paragraph(f"{plat} ({len(grupo)})", h2))
+        grupo = [l for l in ativas if l["plataforma"] == plat]
+        story.append(Paragraph(f"{plat}: lojas ativas ({len(grupo)})", h2))
         for cat in dict.fromkeys(l["categoria"] for l in grupo):
             itens = [l for l in grupo if l["categoria"] == cat]
             story += [Paragraph(f"{cat} ({len(itens)})", h3), tabela(itens)]
+    story += [Paragraph(f"A conferir ({len(conferir)})", h2),
+              Paragraph("Não deu para confirmar daqui se estão no ar. Vale abrir o link antes de escolher.", txt),
+              Spacer(1, 4), tabela(conferir),
+              Paragraph(f"Inativas no Goomer: dão erro 404 ({len(inativas)})", h2),
+              Paragraph(", ".join(escape(l["nome"]) for l in inativas) + ".", txt)]
     doc = SimpleDocTemplate("goomer_cardapioweb_joinville.pdf", pagesize=landscape(A4), leftMargin=28, rightMargin=28,
                             topMargin=28, bottomMargin=30, title="Goomer e Cardápio Web em Joinville")
     doc.build(story, onFirstPage=rodape, onLaterPages=rodape)
