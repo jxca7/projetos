@@ -31,10 +31,29 @@
     }
   };
 
+  // Descobre o ID da conta. Tenta 3 caminhos diferentes, porque o Instagram
+  // costuma limitar (erro 429) o web_profile_info.
   console.log(`%cProcurando @${CONTA}...`, "font-weight:bold");
-  const perfil = await api(`/api/v1/users/web_profile_info/?username=${encodeURIComponent(CONTA)}`);
-  const user = perfil?.data?.user;
-  if (!user) return console.error(`Conta @${CONTA} nao encontrada.`);
+  const meuId = (document.cookie.match(/ds_user_id=(\d+)/) || [])[1];
+  const buscarId = async () => {
+    try {
+      const d = await api(`/web/search/topsearch/?context=blended&query=${encodeURIComponent(CONTA)}`);
+      const u = (d.users || []).map((x) => x.user).find((u) => u.username?.toLowerCase() === CONTA.toLowerCase());
+      if (u) return String(u.pk || u.pk_id || u.id);
+    } catch (e) { console.warn("busca falhou:", e.message); }
+    try {
+      const html = await (await fetch(`/${CONTA}/`, { credentials: "include" })).text();
+      for (const re of [/"profilePage_(\d+)"/, /"profile_id":"(\d+)"/, /"page_id":"profilePage_(\d+)"/]) {
+        const m = html.match(re);
+        if (m && m[1] !== meuId) return m[1];
+      }
+    } catch (e) { console.warn("pagina do perfil falhou:", e.message); }
+    const d = await api(`/api/v1/users/web_profile_info/?username=${encodeURIComponent(CONTA)}`);
+    return d?.data?.user?.id;
+  };
+  const userId = await buscarId();
+  if (!userId) return console.error(`Conta @${CONTA} nao encontrada.`);
+  const user = { id: userId };
 
   // 1) lista os reels
   const reels = [];
