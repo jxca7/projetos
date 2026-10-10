@@ -29,6 +29,25 @@ FORMATO = "bestvideo*+bestaudio/best"
 ORDENACAO = ["res", "fps", "tbr", "vbr", "abr", "vcodec:avc1", "acodec:aac"]
 
 
+def opcoes_ytdlp(saida):
+    """Opcoes do yt-dlp para baixar na melhor qualidade, sem recodificar."""
+    return {
+        "format": FORMATO,
+        "format_sort": ORDENACAO,
+        "merge_output_format": "mp4",
+        # remux (copia os streams) — nao recodifica, nao perde qualidade
+        "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
+        "outtmpl": str(Path(saida) / "%(uploader_id,uploader)s_%(id)s.%(ext)s"),
+        "restrictfilenames": True,
+        "windowsfilenames": True,
+        "retries": 10,
+        "fragment_retries": 10,
+        "concurrent_fragment_downloads": 4,
+        "ignoreerrors": True,
+        "noplaylist": False,
+    }
+
+
 def ler_links(caminho):
     linhas = Path(caminho).read_text(encoding="utf-8").splitlines()
     return [l.strip() for l in linhas if l.strip() and not l.strip().startswith("#")]
@@ -60,21 +79,7 @@ def main():
     saida = Path(args.saida).expanduser()
     saida.mkdir(parents=True, exist_ok=True)
 
-    opcoes = {
-        "format": FORMATO,
-        "format_sort": ORDENACAO,
-        "merge_output_format": "mp4",
-        # remux (copia os streams) — nao recodifica, nao perde qualidade
-        "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
-        "outtmpl": str(saida / "%(uploader_id,uploader)s_%(id)s.%(ext)s"),
-        "restrictfilenames": True,
-        "windowsfilenames": True,
-        "retries": 10,
-        "fragment_retries": 10,
-        "concurrent_fragment_downloads": 4,
-        "ignoreerrors": True,
-        "noplaylist": False,
-    }
+    opcoes = opcoes_ytdlp(saida)
     if args.cookies:
         opcoes["cookiefile"] = args.cookies
     if args.cookies_from_browser:

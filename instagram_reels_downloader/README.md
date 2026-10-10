@@ -33,6 +33,18 @@ python3 baixar_reels.py URL --listar
 
 Os arquivos saem como `usuario_IDDOREEL.mp4` na pasta `reels/`.
 
+## Baixar todos os Reels de uma conta
+
+```bash
+python3 baixar_conta.py nome_da_conta --cookies cookies.txt
+python3 baixar_conta.py nome_da_conta --cookies cookies.txt --limite 20   # só os 20 mais recentes
+```
+
+O Instagram só mostra a lista de reels de um perfil para quem está logado, por
+isso precisa do `cookies.txt` (exporte com a extensão "Get cookies.txt LOCALLY"
+estando logado no instagram.com). Os vídeos vão para `reels_<conta>/` com o nome
+`DATA_ID.mp4`. Rodando de novo, só baixa os reels novos.
+
 ## Dicas
 
 - Se começar a falhar, atualize o yt-dlp: `pip install -U yt-dlp`
