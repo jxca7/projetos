@@ -48,8 +48,8 @@ estando logado no instagram.com). Os vídeos vão para `reels_<conta>/` com o no
 ## Pelo navegador (sem instalar nada)
 
 Se o Instagram bloquear o Colab/servidor (erro 429), use `baixar_reels_navegador.js`:
-abra o instagram.com logado no Chrome, F12 → Console, cole o código e aperte Enter.
-Ele pede o nome da conta e baixa os reels para a pasta Downloads, escolhendo a
+abra `instagram.com/NOME_DA_CONTA/reels/` logado no Chrome, F12 → Console, cole o
+código e aperte Enter. Ele rola a página listando os reels e baixa os reels para a pasta Downloads, escolhendo a
 versão de maior resolução com vídeo+áudio.
 
 ## Dicas
