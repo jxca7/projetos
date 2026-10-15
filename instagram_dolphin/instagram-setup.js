@@ -17,6 +17,8 @@ const EXT_FOTO = ['.jpg', '.jpeg', '.png'];
 const TXT_ENVIAR = ['Enviar', 'Submit', 'Salvar', 'Save'];
 const TXT_ALTERAR_FOTO = ['Alterar foto', 'Change photo', 'Alterar foto do perfil', 'Change profile photo'];
 const TXT_CARREGAR_FOTO = ['Carregar foto', 'Upload photo', 'Upload Photo'];
+const TXT_TENTAR_DE_NOVO = ['Retry', 'Tentar novamente', 'Tentar de novo'];
+const TXT_ERRO_SALVAR = ['problem saving', 'problema ao salvar', 'Try again later', 'Tente novamente mais tarde'];
 
 // ---------- utilidades ----------
 
@@ -201,6 +203,24 @@ async function verificarLogado(page) {
   }
 }
 
+// Espera até 8s por uma mensagem de erro do Instagram na tela
+async function apareceuErro(page) {
+  const fim = Date.now() + 8000;
+  while (Date.now() < fim) {
+    if (await textoDoErro(page)) return true;
+    await esperar(500);
+  }
+  return false;
+}
+
+async function textoDoErro(page) {
+  return page.evaluate((textos) => {
+    const corpo = document.body.innerText;
+    const linha = corpo.split('\n').find((l) => textos.some((t) => l.toLowerCase().includes(t.toLowerCase())));
+    return linha ? linha.trim() : null;
+  }, TXT_ERRO_SALVAR);
+}
+
 async function trocarFoto(page, nome, arquivo) {
   // 1ª tentativa: input de arquivo escondido na própria página de edição
   const input = await page.$('input[type="file"][accept*="image"]');
@@ -244,7 +264,27 @@ async function trocarBio(page, nome, bio) {
   await pausaHumana();
 
   if (!(await clicarPorTexto(page, TXT_ENVIAR))) throw new Error('Botão "Enviar" não encontrado');
-  await esperar(4000);
+
+  // O Instagram às vezes mostra "There was a problem saving your profile": tenta mais uma vez
+  if (await apareceuErro(page)) {
+    log(nome, 'O Instagram deu erro ao salvar, tentando de novo em 10s...');
+    await esperar(10000);
+    if (!(await clicarPorTexto(page, TXT_TENTAR_DE_NOVO, 3000))) await clicarPorTexto(page, TXT_ENVIAR, 3000);
+    if (await apareceuErro(page)) {
+      const msg = await textoDoErro(page);
+      throw new Error(`O Instagram recusou salvar o perfil: "${msg}"`);
+    }
+  }
+
+  // Confere recarregando a página
+  await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
+  const salva = await page
+    .$eval('textarea#pepBio, textarea[name="biography"], textarea', (t) => t.value)
+    .catch(() => null);
+  const normalizar = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  if (salva !== null && normalizar(salva) !== normalizar(bio)) {
+    throw new Error('A bio não ficou salva (o Instagram não aceitou a mudança)');
+  }
   log(nome, 'Bio trocada.');
 }
 
@@ -288,6 +328,10 @@ async function processarConta(nome, arquivoCookies, proxy) {
       await pages[pages.length - 1].screenshot({ path: print });
       log(nome, `Print do erro salvo em ${print}`);
     } catch {}
+    log(nome, `ERRO: ${err.message}`);
+    err.jaMostrado = true;
+    log(nome, 'O Edge ficou aberto para você ver/testar na mão. Feche o Edge para continuar.');
+    await new Promise((r) => browser.once('disconnected', r));
     throw err;
   } finally {
     await browser.close().catch(() => {});
@@ -315,7 +359,7 @@ async function main() {
       log(nome, 'OK ✔');
       resultado.push(`✔ ${nome}`);
     } catch (err) {
-      log(nome, `ERRO: ${err.message}`);
+      if (!err.jaMostrado) log(nome, `ERRO: ${err.message}`);
       resultado.push(`✘ ${nome}: ${err.message}`);
     }
     if (i < arquivos.length - 1) await pausaHumana(5000, 10000);
