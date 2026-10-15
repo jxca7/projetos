@@ -20,6 +20,19 @@ const TXT_CARREGAR_FOTO = ['Carregar foto', 'Upload photo', 'Upload Photo'];
 const TXT_TENTAR_DE_NOVO = ['Retry', 'Tentar novamente', 'Tentar de novo'];
 const TXT_ERRO_SALVAR = ['problem saving', 'problema ao salvar', 'Try again later', 'Tente novamente mais tarde'];
 
+// Convites de testador (Permissões do site do app > Apps e sites > Convites do testador)
+const URL_APPS_E_SITES = 'https://www.instagram.com/accounts/manage_access/';
+const TXT_PERMISSOES = ['Permissões do site do app', 'Website permissions', 'App and website permissions'];
+const TXT_APPS_E_SITES = ['Apps e sites', 'Apps and websites'];
+const TXT_CONVITES = ['Convites do testador', 'Convites de testador', 'Tester invites', 'Tester Invites'];
+const TXT_ACEITAR = ['Aceitar', 'Accept'];
+const TXT_SEM_CONVITES = ['não tem convites', 'nenhum convite', 'no tester invites', "don't have any", 'não tem nenhum'];
+
+// Conta profissional: Criador de conteúdo > Blog pessoal
+const TXT_CRIADOR = ['Criador de conteúdo', 'Criador', 'Creator'];
+const TXT_BLOG_PESSOAL = ['Blog pessoal', 'Personal blog', 'Personal Blog'];
+const TXT_AVANCAR = ['Avançar', 'Próximo', 'Next', 'Continuar', 'Continue', 'Concluir', 'Concluído', 'Done', 'OK', 'Confirmar', 'Confirm'];
+
 // ---------- utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -221,6 +234,115 @@ async function textoDoErro(page) {
   }, TXT_ERRO_SALVAR);
 }
 
+// Clica no elemento visível mais "de dentro" cujo texto é exatamente um dos textos (sem diferenciar maiúsculas)
+async function clicarTexto(page, textos, timeout = 10000) {
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    const handle = await page.evaluateHandle((textos) => {
+      const alvo = textos.map((t) => t.toLowerCase());
+      const candidatos = [...document.querySelectorAll('body *')].filter((el) => {
+        const t = (el.innerText || '').trim().toLowerCase();
+        const r = el.getBoundingClientRect();
+        return alvo.includes(t) && r.width > 0 && r.height > 0;
+      });
+      // o mais interno (sem filho que também bata)
+      return candidatos.find((el) => !candidatos.some((o) => o !== el && el.contains(o))) || null;
+    }, textos);
+    const el = handle.asElement();
+    if (el) {
+      await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+      await pausaHumana(300, 700);
+      await el.click();
+      return true;
+    }
+    await esperar(500);
+  }
+  return false;
+}
+
+async function paginaContem(page, textos) {
+  return page.evaluate((textos) => {
+    const corpo = document.body.innerText.toLowerCase();
+    return textos.some((t) => corpo.includes(t.toLowerCase()));
+  }, textos);
+}
+
+async function aceitarConvitesTestador(page, nome) {
+  log(nome, 'Abrindo Apps e sites...');
+  await page.goto(URL_APPS_E_SITES, { waitUntil: 'networkidle2', timeout: 60000 });
+  await pausaHumana(2000, 3500);
+
+  // Se o link direto não abrir a tela, vai pelo menu: Permissões do site do app > Apps e sites
+  if (!(await paginaContem(page, TXT_CONVITES))) {
+    await page.goto('https://www.instagram.com/accounts/edit/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await pausaHumana(1500, 3000);
+    if (!(await clicarTexto(page, TXT_PERMISSOES))) throw new Error('Não achei "Permissões do site do app"');
+    await pausaHumana(1500, 3000);
+    if (!(await clicarTexto(page, TXT_APPS_E_SITES))) throw new Error('Não achei "Apps e sites"');
+    await pausaHumana(2000, 3500);
+  }
+
+  if (!(await clicarTexto(page, TXT_CONVITES))) throw new Error('Não achei "Convites do testador"');
+  await pausaHumana(2000, 3500);
+
+  let aceitos = 0;
+  while (aceitos < 20 && (await clicarTexto(page, TXT_ACEITAR, 4000))) {
+    aceitos++;
+    await pausaHumana(2000, 3500);
+    await clicarTexto(page, TXT_ACEITAR, 1500); // às vezes pede para confirmar
+    await pausaHumana(1500, 2500);
+  }
+
+  if (aceitos) log(nome, 'Convites do testador aceitos.');
+  else if (await paginaContem(page, TXT_SEM_CONVITES)) log(nome, 'Nenhum convite do testador pendente.');
+  else log(nome, 'AVISO: não achei nenhum botão "Aceitar" nos convites do testador.');
+}
+
+async function virarCriadorBlogPessoal(page, nome) {
+  log(nome, 'Selecionando Criador de conteúdo > Blog pessoal...');
+  await pausaHumana(1500, 2500);
+
+  // Normalmente aparece depois de aceitar o convite; se não apareceu, abre a tela de conta profissional
+  if (!(await paginaContem(page, [...TXT_CRIADOR, ...TXT_BLOG_PESSOAL]))) {
+    await page.goto('https://www.instagram.com/accounts/convert_to_professional_account/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await pausaHumana(2000, 3500);
+  }
+
+  // A ordem das telas muda: vai clicando no que aparecer até não ter mais o que fazer
+  let fezCriador = false;
+  let fezBlog = false;
+  for (let passo = 0, parado = 0; passo < 15 && parado < 3; passo++) {
+    let agiu = false;
+    if (!fezCriador && (await clicarTexto(page, TXT_CRIADOR, 2000))) {
+      fezCriador = agiu = true;
+      log(nome, '"Criador de conteúdo" selecionado.');
+    } else if (!fezBlog && (await clicarTexto(page, TXT_BLOG_PESSOAL, 2000))) {
+      fezBlog = agiu = true;
+      log(nome, '"Blog pessoal" selecionado.');
+    } else if (!fezBlog) {
+      // Lista de categorias com busca: digita para "Blog pessoal" aparecer
+      const busca = await page.$('input[type="search"], input[placeholder*="esquis"], input[placeholder*="earch"]');
+      if (busca) {
+        await busca.click({ clickCount: 3 });
+        await busca.type('Blog pessoal', { delay: 60 });
+        await pausaHumana(1500, 2500);
+        if (await clicarTexto(page, TXT_BLOG_PESSOAL, 3000)) {
+          fezBlog = agiu = true;
+          log(nome, '"Blog pessoal" selecionado.');
+        }
+      }
+    }
+    if (await clicarTexto(page, TXT_AVANCAR, 2000)) agiu = true;
+    parado = agiu ? 0 : parado + 1;
+    await pausaHumana(1500, 3000);
+  }
+
+  if (!fezCriador || !fezBlog) {
+    throw new Error(`Não consegui selecionar ${!fezCriador ? '"Criador de conteúdo"' : ''}${!fezCriador && !fezBlog ? ' e ' : ''}${!fezBlog ? '"Blog pessoal"' : ''}`);
+  }
+  log(nome, 'Criador de conteúdo / Blog pessoal OK.');
+}
+
 // Lê a bio que está salva no perfil agora (null se não conseguir ler)
 async function lerBioAtual(page) {
   try {
@@ -336,6 +458,9 @@ async function processarConta(nome, arquivoCookies, proxy) {
 
     if (bio) await trocarBio(page, nome, bio);
     else log(nome, 'bio.txt vazio, pulando a bio.');
+
+    await aceitarConvitesTestador(page, nome);
+    await virarCriadorBlogPessoal(page, nome);
 
     const bioAtual = await lerBioAtual(page);
     const semBio = bioAtual !== null && !bioAtual.trim();
