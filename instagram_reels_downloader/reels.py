@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16a"
+VERSAO = "2026-10-16b"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -322,12 +322,19 @@ def graphql(s, doc_id, variaveis, referer=None):
 
 def listar_reels_graphql(s, conta, user_id, quantidade):
     reels, depois = [], None
+    tamanho = 50  # pede 50 por pagina; se o Instagram recusar, volta para 12
     while not quantidade or len(reels) < quantidade:
-        variaveis = {"data": {"page_size": 12, "include_feed_video": True, "target_user_id": user_id},
+        variaveis = {"data": {"page_size": tamanho, "include_feed_video": True, "target_user_id": user_id},
                      "__relay_internal__pv__PolarisFeedShareMenurelayprovider": False}
         if depois:
-            variaveis.update({"after": depois, "before": None, "first": 12, "last": None})
-        d = graphql(s, DOC_REELS_DO_PERFIL, variaveis, f"{IG}/{conta}/reels/")
+            variaveis.update({"after": depois, "before": None, "first": tamanho, "last": None})
+        try:
+            d = graphql(s, DOC_REELS_DO_PERFIL, variaveis, f"{IG}/{conta}/reels/")
+        except ErroInstagram as e:
+            if tamanho == 12 or "429" in str(e) or "login" in str(e):
+                raise
+            tamanho = 12
+            continue
         conexao = d.get("xdt_api__v1__clips__user__connection_v2") or {}
         for borda in conexao.get("edges", []):
             midia = (borda.get("node") or {}).get("media")
@@ -338,7 +345,7 @@ def listar_reels_graphql(s, conta, user_id, quantidade):
         depois = pag.get("end_cursor")
         if not pag.get("has_next_page") or not depois:
             break
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(0.8, 1.6))
     return reels
 
 
@@ -394,7 +401,7 @@ def formatar_numero(n):
     return str(n)
 
 
-def mais_vistos(s, reels, quantidade):
+def mais_vistos(s, reels, quantidade, mostrar=True):
     """Ordena os reels por visualizacoes (maior primeiro) e devolve os `quantidade` primeiros."""
     sem_numero = [m for m in reels if visualizacoes(m) is None]
     if sem_numero:
@@ -411,12 +418,42 @@ def mais_vistos(s, reels, quantidade):
             time.sleep(random.uniform(1.5, 3))
     ordenados = sorted(reels, key=lambda m: visualizacoes(m) or -1, reverse=True)
     escolhidos = ordenados[:quantidade] if quantidade else ordenados
+    if not mostrar:
+        return escolhidos
     log("   Mais visualizados:")
     for pos, m in enumerate(escolhidos[:20], 1):
         log(f"   {pos:>3}. {m['code']}  {formatar_numero(visualizacoes(m))} visualizacoes")
     if len(escolhidos) > 20:
         log(f"   ... e mais {len(escolhidos) - 20}")
     return escolhidos
+
+
+VALIDADE_LISTA = 24 * 3600  # segundos
+
+
+def lista_salva(pasta, analisar):
+    """Lista de reels (codigo + visualizacoes) salva numa execucao anterior, se ainda valer."""
+    arq = pasta / "lista_reels.json"
+    try:
+        dados = json.loads(arq.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    idade = time.time() - dados.get("quando", 0)
+    if idade > VALIDADE_LISTA:
+        return None
+    if dados.get("analisar") and (not analisar or analisar > dados["analisar"]):
+        return None  # a lista salva cobre menos reels do que o pedido agora
+    reels = dados.get("reels") or []
+    log(f"   usando a lista salva ha {int(idade // 60)} min ({len(reels)} reels). "
+        "Para buscar de novo: apague lista_reels.json ou use --atualizar-lista")
+    return reels[:analisar] if analisar else reels
+
+
+def salvar_lista(pasta, analisar, reels):
+    pasta.mkdir(parents=True, exist_ok=True)
+    resumo = [{"code": m["code"], "play_count": visualizacoes(m)} for m in reels]
+    (pasta / "lista_reels.json").write_text(
+        json.dumps({"quando": time.time(), "analisar": analisar, "reels": resumo}), encoding="utf-8")
 
 
 def codigo_para_pk(codigo):
@@ -604,6 +641,8 @@ def main():
                    help="baixar os reels MAIS VISUALIZADOS em vez dos mais recentes")
     p.add_argument("--analisar", type=int, default=0,
                    help="com --mais-vistos: quantos reels recentes analisar (padrao: todos)")
+    p.add_argument("--atualizar-lista", action="store_true",
+                   help="com --mais-vistos: ignora a lista salva e busca tudo de novo")
     p.add_argument("-o", "--saida", help="pasta de destino (padrao: ./reels_<conta>)")
     p.add_argument("--cookies", help="arquivo cookies.txt (padrao: ./cookies.txt)")
     p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta "
@@ -666,8 +705,12 @@ def main():
             if vistos:
                 log(f"Listando os reels de @{conta} para achar os mais visualizados"
                     + (f" (entre os {args.analisar} mais recentes)" if args.analisar else "") + "...")
-                reels = listar_reels(s, conta, args.analisar)
-                log(f"{len(reels)} reels encontrados.")
+                reels = None if args.atualizar_lista else lista_salva(pasta, args.analisar)
+                if reels is None:
+                    reels = listar_reels(s, conta, args.analisar)
+                    log(f"{len(reels)} reels encontrados.")
+                    reels = mais_vistos(s, reels, 0, mostrar=False)
+                    salvar_lista(pasta, args.analisar, reels)
                 reels = mais_vistos(s, reels, qtd)
             else:
                 log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
