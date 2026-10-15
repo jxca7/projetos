@@ -125,25 +125,86 @@ def pedir_json(s, metodo, url, tentativas=4, **kw):
 
 # --------------------------------------------------------------------------- listagem
 
+CACHE_IDS = Path(__file__).resolve().parent / "ids_das_contas.txt"
+
+
+def ler_cache_ids():
+    if not CACHE_IDS.exists():
+        return {}
+    pares = (l.split() for l in CACHE_IDS.read_text().splitlines())
+    return {p[0]: p[1] for p in pares if len(p) == 2}
+
+
 def id_da_conta(s, conta):
-    # 1) busca (rota menos limitada)
-    try:
+    """Descobre o ID numerico da conta. Tenta varios caminhos, do menos limitado
+    pelo Instagram ao mais limitado, e guarda o resultado para as proximas vezes."""
+    cache = ler_cache_ids()
+    if conta in cache:
+        return cache[conta]
+    meu_id = s.cookies.get("ds_user_id")
+
+    def pela_pagina():
+        r = s.get(f"{IG}/{conta}/", timeout=30, headers={
+            "Accept": "text/html,application/xhtml+xml", "X-Requested-With": None})
+        if r.status_code == 404:
+            raise ErroInstagram(f"A conta @{conta} nao existe.")
+        for padrao in (r'"profilePage_(\d+)"', r'"profile_id":"(\d+)"', r'"target_id":"(\d+)"',
+                       r'"id":"(\d+)","username":"' + re.escape(conta) + '"',
+                       r'"username":"' + re.escape(conta) + r'","id":"(\d+)"'):
+            for m in re.finditer(padrao, r.text):
+                if m.group(1) != meu_id:
+                    return m.group(1)
+
+    def pela_busca():
         d = pedir_json(s, "GET", f"{IG}/web/search/topsearch/", tentativas=1,
                        params={"context": "blended", "query": conta})
         for item in d.get("users", []):
             u = item.get("user") or {}
             if (u.get("username") or "").lower() == conta:
                 return str(u.get("pk") or u.get("pk_id") or u.get("id"))
-    except (ErroInstagram, requests.RequestException):
-        pass
-    # 2) web_profile_info
-    d = pedir_json(s, "GET", f"{IG}/api/v1/users/web_profile_info/", params={"username": conta})
-    user = (d.get("data") or {}).get("user")
-    if not user:
-        raise ErroInstagram(f"A conta @{conta} nao foi encontrada.")
-    if user.get("is_private") and not user.get("followed_by_viewer"):
-        raise ErroInstagram(f"A conta @{conta} e privada e voce nao a segue.")
-    return str(user["id"])
+
+    def pelo_app(tentativas):
+        # mesma consulta pelo servidor do app de celular (limite separado do site)
+        d = pedir_json(s, "GET", "https://i.instagram.com/api/v1/users/web_profile_info/",
+                       tentativas=tentativas, params={"username": conta},
+                       headers={"User-Agent": "Instagram 309.1.0.41.113 Android (33/13; 420dpi; "
+                                              "1080x2400; samsung; SM-G991B; o1s; exynos2100; pt_BR)",
+                                "X-IG-App-ID": "124024574287414"})
+        user = (d.get("data") or {}).get("user")
+        if not user:
+            raise ErroInstagram(f"A conta @{conta} nao foi encontrada.")
+        if user.get("is_private") and not user.get("followed_by_viewer"):
+            raise ErroInstagram(f"A conta @{conta} e privada e voce nao a segue.")
+        return str(user["id"])
+
+    def pelo_site(tentativas):
+        d = pedir_json(s, "GET", f"{IG}/api/v1/users/web_profile_info/",
+                       tentativas=tentativas, params={"username": conta})
+        user = (d.get("data") or {}).get("user")
+        if not user:
+            raise ErroInstagram(f"A conta @{conta} nao foi encontrada.")
+        return str(user["id"])
+
+    caminhos = [pela_pagina, pela_busca, lambda: pelo_app(1), lambda: pelo_site(1),
+                lambda: pelo_app(4)]
+    ultimo_erro = None
+    for caminho in caminhos:
+        try:
+            user_id = caminho()
+        except ErroInstagram as e:
+            if "nao existe" in str(e) or "privada" in str(e) or "login" in str(e):
+                raise
+            ultimo_erro = e
+            continue
+        except requests.RequestException as e:
+            ultimo_erro = e
+            continue
+        if user_id:
+            with open(CACHE_IDS, "a") as f:
+                f.write(f"{conta} {user_id}\n")
+            return user_id
+    raise ErroInstagram(f"Nao consegui achar o ID de @{conta} ({ultimo_erro}). "
+                        "Espere 1 hora sem rodar e tente de novo.")
 
 
 def listar_reels(s, conta, quantidade):
