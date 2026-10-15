@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15j"
+VERSAO = "2026-10-16a"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -375,6 +375,50 @@ def listar_reels(s, conta, quantidade):
     return reels[:quantidade] if quantidade else reels
 
 
+def visualizacoes(midia):
+    """Numero de visualizacoes do reel (o Instagram usa nomes diferentes conforme a consulta)."""
+    for chave in ("play_count", "ig_play_count", "view_count", "video_view_count", "fb_play_count"):
+        valor = midia.get(chave)
+        if isinstance(valor, int):
+            return valor
+    return None
+
+
+def formatar_numero(n):
+    if n is None:
+        return "?"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f} mi".replace(".", ",")
+    if n >= 1_000:
+        return f"{n / 1_000:.1f} mil".replace(".", ",")
+    return str(n)
+
+
+def mais_vistos(s, reels, quantidade):
+    """Ordena os reels por visualizacoes (maior primeiro) e devolve os `quantidade` primeiros."""
+    sem_numero = [m for m in reels if visualizacoes(m) is None]
+    if sem_numero:
+        log(f"   buscando as visualizacoes de {len(sem_numero)} reels que vieram sem o numero...")
+        for i, midia in enumerate(sem_numero, 1):
+            try:
+                midia.update(info_do_reel(s, midia["code"]))
+            except ErroInstagram as e:
+                if "429" in str(e):
+                    raise
+                log(f"   {midia['code']}: {e}", erro=True)
+            if i % 10 == 0:
+                log(f"   {i}/{len(sem_numero)}...")
+            time.sleep(random.uniform(1.5, 3))
+    ordenados = sorted(reels, key=lambda m: visualizacoes(m) or -1, reverse=True)
+    escolhidos = ordenados[:quantidade] if quantidade else ordenados
+    log("   Mais visualizados:")
+    for pos, m in enumerate(escolhidos[:20], 1):
+        log(f"   {pos:>3}. {m['code']}  {formatar_numero(visualizacoes(m))} visualizacoes")
+    if len(escolhidos) > 20:
+        log(f"   ... e mais {len(escolhidos) - 20}")
+    return escolhidos
+
+
 def codigo_para_pk(codigo):
     pk = 0
     for c in codigo[:11]:
@@ -556,6 +600,10 @@ def main():
     p.add_argument("alvo", nargs="*", help="nome da conta, link do perfil, ou links de reels")
     p.add_argument("-n", "--quantidade", type=int,
                    help="quantos reels baixar (os mais recentes). 0 = todos")
+    p.add_argument("--mais-vistos", action="store_true",
+                   help="baixar os reels MAIS VISUALIZADOS em vez dos mais recentes")
+    p.add_argument("--analisar", type=int, default=0,
+                   help="com --mais-vistos: quantos reels recentes analisar (padrao: todos)")
     p.add_argument("-o", "--saida", help="pasta de destino (padrao: ./reels_<conta>)")
     p.add_argument("--cookies", help="arquivo cookies.txt (padrao: ./cookies.txt)")
     p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta "
@@ -610,10 +658,21 @@ def main():
             qtd = args.quantidade
             if qtd is None:
                 qtd = int(perguntar("Quantos reels baixar? (Enter = todos): ", "0") or 0)
+            vistos = args.mais_vistos
+            if not vistos and not args.alvo:
+                vistos = perguntar("Quais? [1] mais recentes  [2] mais visualizados  (Enter = 1): ",
+                                   "1").strip() == "2"
             pasta = Path(args.saida or f"reels_{conta}").expanduser()
-            log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
-            reels = listar_reels(s, conta, qtd)
-            log(f"{len(reels)} reels encontrados.")
+            if vistos:
+                log(f"Listando os reels de @{conta} para achar os mais visualizados"
+                    + (f" (entre os {args.analisar} mais recentes)" if args.analisar else "") + "...")
+                reels = listar_reels(s, conta, args.analisar)
+                log(f"{len(reels)} reels encontrados.")
+                reels = mais_vistos(s, reels, qtd)
+            else:
+                log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
+                reels = listar_reels(s, conta, qtd)
+                log(f"{len(reels)} reels encontrados.")
     except (ErroInstagram, *ERROS_REDE) as e:
         sys.exit(f"ERRO: {e}")
 
@@ -626,6 +685,8 @@ def main():
     for i, midia in enumerate(reels, 1):
         codigo = midia["code"]
         prefixo = f"[{i}/{len(reels)}] {codigo}"
+        if visualizacoes(midia) is not None:
+            prefixo += f" ({formatar_numero(visualizacoes(midia))} visualizacoes)"
         if codigo in ja:
             log(f"{prefixo}  ja baixado, pulando")
             pulados += 1

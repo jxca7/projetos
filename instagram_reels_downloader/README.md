@@ -34,6 +34,7 @@ cd ~/projetos/instagram_reels_downloader
 .venv/bin/python reels.py                         # pergunta a conta e a quantidade
 .venv/bin/python reels.py nome_da_conta -n 10     # 10 mais recentes
 .venv/bin/python reels.py nome_da_conta -n 0      # todos
+.venv/bin/python reels.py nome_da_conta -n 10 --mais-vistos   # 10 mais visualizados
 .venv/bin/python reels.py https://www.instagram.com/reel/XXXX/   # links avulsos
 ```
 
