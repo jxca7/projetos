@@ -18,14 +18,18 @@ const TXT_AGORA_NAO = ['Agora não', 'Not now', 'Not Now'];
 
 // Telas depois do login, na ordem. "opcional" = pode não aparecer.
 const PASSOS = [
-  { nome: 'Mudar', textos: ['Mudar', 'Switch', 'Mudar para conta profissional', 'Switch to professional account'] },
-  { nome: 'Criador de conteúdo', textos: ['Criador de conteúdo', 'Criador', 'Creator'] },
+  {
+    nome: 'Mudar',
+    textos: ['Mudar', 'Mudar para conta profissional', 'Switch', 'Change', 'Update', 'Switch now', 'Switch account',
+      'Switch to professional account', 'Switch to Professional Account', 'Switch to professional', 'Change account type'],
+  },
+  { nome: 'Criador de conteúdo', textos: ['Criador de conteúdo', 'Criador', 'Creator', 'Content creator', 'Content Creator'] },
   { nome: 'Avançar', textos: ['Avançar', 'Próximo', 'Next'] },
   { nome: 'Blog pessoal', textos: ['Blog pessoal', 'Personal blog', 'Personal Blog'], categoria: true },
-  { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done'] },
+  { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'] },
   { nome: 'Continuar', textos: ['Continuar', 'Continue'] },
-  { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done'], opcional: true },
-  { nome: 'Permitir', textos: ['Permitir', 'Allow'] },
+  { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'], opcional: true },
+  { nome: 'Permitir', textos: ['Permitir', 'Allow', 'Allow access'] },
 ];
 
 // ---------- utilidades ----------
@@ -98,7 +102,8 @@ function lerProxy() {
 }
 
 async function abrirEdge(proxy) {
-  const args = ['--no-first-run', '--no-default-browser-check', '--start-maximized'];
+  // --lang: Edge e Instagram em português
+  const args = ['--no-first-run', '--no-default-browser-check', '--start-maximized', '--lang=pt-BR', '--accept-lang=pt-BR,pt'];
   if (proxy) args.push(`--proxy-server=${proxy.servidor}`);
   // Um perfil só, guardado em navegador/: o login do site fica salvo nele
   return puppeteer.launch({
@@ -356,6 +361,7 @@ async function passarTelas(page, nome) {
 async function conectarConta(browser, site, conta) {
   const nome = conta.usuario;
   const page = (await browser.pages())[0] || (await browser.newPage());
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9' });
   try {
     await limparLoginInstagram(page);
     await clicarConectar(page, site, nome);
