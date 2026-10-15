@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16c"
+VERSAO = "2026-10-16d"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -80,16 +80,67 @@ def log(msg="", erro=False):
     print(msg, file=sys.stderr if erro else sys.stdout, flush=True)
 
 
+# --------------------------------------------------------------------------- pastas
+# reels\              <- cookies.txt, proxy.txt e os .bat
+#   videos\<conta>\   <- os reels baixados
+#   sistema\          <- este programa, Python, ffmpeg e dados/ (historico, listas)
+AQUI = Path(__file__).resolve().parent
+RAIZ = AQUI.parent if AQUI.name == "sistema" else AQUI
+PASTA_VIDEOS = RAIZ / "videos" if AQUI.name == "sistema" else Path.cwd()
+PASTA_DADOS = AQUI / "dados"
+
+
+def dados_da_conta(nome):
+    pasta = PASTA_DADOS / nome
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
+
+def organizar_pastas_antigas():
+    """Move as pastas reels_<conta> do formato antigo para videos/<conta>,
+    e o historico (baixados.txt, lista_reels.json) para sistema/dados/<conta>."""
+    if AQUI.name != "sistema":
+        return
+    for arq in (RAIZ / "ids_das_contas.txt", AQUI / "ids_das_contas.txt"):
+        if arq.is_file() and not (PASTA_DADOS / arq.name).exists():
+            PASTA_DADOS.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(arq), PASTA_DADOS / arq.name)
+    for velha in RAIZ.glob("reels_*"):
+        if not velha.is_dir():
+            continue
+        nome = velha.name[len("reels_"):]
+        dados = dados_da_conta(nome)
+        for arq in ("baixados.txt", "lista_reels.json"):
+            if not (velha / arq).exists():
+                continue
+            if arq == "baixados.txt" and (dados / arq).exists():
+                with open(dados / arq, "a") as f:
+                    f.write("\n" + (velha / arq).read_text())
+                (velha / arq).unlink()
+            else:
+                shutil.move(str(velha / arq), dados / arq)
+        destino = PASTA_VIDEOS / nome
+        destino.mkdir(parents=True, exist_ok=True)
+        for item in velha.iterdir():
+            if not (destino / item.name).exists():
+                shutil.move(str(item), destino / item.name)
+        try:
+            velha.rmdir()
+            log(f"(organizado: {velha.name} -> videos\\{nome})")
+        except OSError:
+            pass
+
+
 # --------------------------------------------------------------------------- sessao
 
 def achar_cookies(caminho):
     if caminho:
         return Path(caminho)
-    for pasta in (Path.cwd(), Path(__file__).resolve().parent, Path.home() / "Downloads"):
-        for nome in ("cookies.txt", "www.instagram.com_cookies.txt"):
+    for pasta in (RAIZ, AQUI, Path.cwd(), Path.home() / "Downloads"):
+        for nome in ("cookies.txt", "www.instagram.com_cookies.txt", "cookies.txt.txt"):
             if (pasta / nome).exists():
                 return pasta / nome
-    sys.exit("Nao achei o cookies.txt. Coloque o arquivo na pasta ou use --cookies CAMINHO.")
+    sys.exit(f"Nao achei o cookies.txt. Coloque o arquivo na pasta {RAIZ} ou use --cookies CAMINHO.")
 
 
 def ler_proxy(valor):
@@ -100,7 +151,7 @@ def ler_proxy(valor):
         socks5://usuario:senha@host:porta     |   http://usuario:senha@host:porta
     """
     if not valor:
-        for pasta in (Path.cwd(), Path(__file__).resolve().parent):
+        for pasta in (RAIZ, AQUI, Path.cwd()):
             arq = next((pasta / n for n in ("proxy.txt", "proxy.txt.txt", "proxy")
                         if (pasta / n).is_file()), None)
             if arq:
@@ -200,7 +251,7 @@ def pedir_json(s, metodo, url, tentativas=4, **kw):
 
 # --------------------------------------------------------------------------- listagem
 
-CACHE_IDS = Path(__file__).resolve().parent / "ids_das_contas.txt"
+CACHE_IDS = PASTA_DADOS / "ids_das_contas.txt"
 
 
 def ler_cache_ids():
@@ -297,6 +348,7 @@ def id_da_conta(s, conta):
             continue
         if user_id:
             log(f"   ID de @{conta}: {user_id}")
+            PASTA_DADOS.mkdir(parents=True, exist_ok=True)
             with open(CACHE_IDS, "a") as f:
                 f.write(f"{conta} {user_id}\n")
             return user_id
@@ -445,7 +497,7 @@ def lista_salva(pasta, analisar):
         return None  # a lista salva cobre menos reels do que o pedido agora
     reels = dados.get("reels") or []
     log(f"   usando a lista salva ha {int(idade // 60)} min ({len(reels)} reels). "
-        "Para buscar de novo: apague lista_reels.json ou use --atualizar-lista")
+        "Para buscar de novo: use --atualizar-lista (ou apague sistema\\dados\\<conta>\\lista_reels.json)")
     return reels[:analisar] if analisar else reels
 
 
@@ -548,7 +600,7 @@ def achar_ffmpeg():
     """ffmpeg do sistema, ou o que o instalar.bat baixou na pasta ./ffmpeg (Windows)."""
     if shutil.which("ffmpeg"):
         return shutil.which("ffmpeg")
-    local = Path(__file__).resolve().parent / "ffmpeg"
+    local = AQUI / "ffmpeg"
     for exe in local.rglob("ffmpeg.exe") if local.exists() else []:
         return str(exe)
     return None
@@ -657,6 +709,7 @@ def main():
 
     log(f"Downloader de Reels - versao {VERSAO}" + ("" if CHROME else
         "  (AVISO: curl_cffi nao instalado, rode o instalar.bat de novo)"))
+    organizar_pastas_antigas()
     alvos = args.alvo
     if not alvos:
         alvos = [perguntar("Conta do Instagram (sem @) ou link do reel: ")]
@@ -690,7 +743,8 @@ def main():
     try:
         if links:
             codigos = [re.search(r"/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", l).group(1) for l in links]
-            pasta = Path(args.saida or "reels").expanduser()
+            pasta = Path(args.saida).expanduser() if args.saida else PASTA_VIDEOS / "avulsos"
+            dados = dados_da_conta("avulsos")
             reels = [{"code": c} for c in codigos]
         else:
             conta = alvos[0].strip().rstrip("/").split("/")[-1].lstrip("@").lower()
@@ -701,16 +755,17 @@ def main():
             if not vistos and not args.alvo:
                 vistos = perguntar("Quais? [1] mais recentes  [2] mais visualizados  (Enter = 1): ",
                                    "1").strip() == "2"
-            pasta = Path(args.saida or f"reels_{conta}").expanduser()
+            pasta = Path(args.saida).expanduser() if args.saida else PASTA_VIDEOS / conta
+            dados = dados_da_conta(conta)
             if vistos:
                 log(f"Listando os reels de @{conta} para achar os mais visualizados"
                     + (f" (entre os {args.analisar} mais recentes)" if args.analisar else "") + "...")
-                reels = None if args.atualizar_lista else lista_salva(pasta, args.analisar)
+                reels = None if args.atualizar_lista else lista_salva(dados, args.analisar)
                 if reels is None:
                     reels = listar_reels(s, conta, args.analisar)
                     log(f"{len(reels)} reels encontrados.")
                     reels = mais_vistos(s, reels, 0, mostrar=False)
-                    salvar_lista(pasta, args.analisar, reels)
+                    salvar_lista(dados, args.analisar, reels)
                 reels = mais_vistos(s, reels, qtd)
             else:
                 log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
@@ -720,8 +775,8 @@ def main():
         sys.exit(f"ERRO: {e}")
 
     pasta.mkdir(parents=True, exist_ok=True)
-    registro = pasta / "baixados.txt"
-    ja = ler_registro(registro)
+    registro = dados / "baixados.txt"
+    ja = ler_registro(registro) | ler_registro(pasta / "baixados.txt")
     ok = pulados = 0
     falhas = []
 

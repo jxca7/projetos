@@ -12,5 +12,5 @@ python3 -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 chmod +x reels.py
 echo
-echo "Pronto! Agora envie o cookies.txt para esta pasta:  $(pwd)"
-echo "e rode:  .venv/bin/python reels.py"
+echo "Pronto! Agora envie o cookies.txt para a pasta:  $(dirname "$(pwd)")"
+echo "e rode:  sistema/.venv/bin/python sistema/reels.py   (de dentro dessa pasta)"

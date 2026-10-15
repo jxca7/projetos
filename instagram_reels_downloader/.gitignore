@@ -1,10 +1,15 @@
 __pycache__/
 cookies.txt
 *cookies*.txt
-reels/
+proxy*.txt
+!proxy.txt.exemplo
+videos/
 reels_*/
 .venv/
+sistema/.venv/
+sistema/ffmpeg/
+sistema/dados/
 ffmpeg/
 ffmpeg.zip
 ids_das_contas.txt
-proxy.txt
+*.novo

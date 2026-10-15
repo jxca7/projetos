@@ -1,52 +1,46 @@
 # Downloader de Reels do Instagram (melhor qualidade)
 
-`reels.py` baixa os **N reels mais recentes** de uma conta (ou links avulsos) na
-**melhor qualidade que o Instagram tem**: pega a faixa de vídeo de maior
-resolução/bitrate e a melhor faixa de áudio e junta com o ffmpeg **sem
-recodificar** (zero perda). Também salva a legenda de cada reel em `.txt`.
+Baixa reels de uma conta (os mais recentes ou os mais visualizados) na **melhor
+qualidade que o Instagram tem**: a faixa de vídeo de maior resolução + a melhor
+faixa de áudio, juntadas com o ffmpeg **sem recodificar**. Salva a legenda em `.txt`.
 
-## Instalar no Windows (PC ou VPS Windows)
+## Organização da pasta
 
-1. Baixe o código: https://github.com/jxca7/projetos/archive/refs/heads/claude/instagram-reels-downloader-bkjo1e.zip
-2. Extraia o zip e abra a pasta `instagram_reels_downloader`.
-3. Dois cliques em **`instalar.bat`** (baixa Python e ffmpeg sozinho).
-4. Coloque o `cookies.txt` nessa pasta (ou deixe em Downloads).
-5. Dois cliques em **`baixar.bat`**: ele pergunta a conta e quantos reels.
+```
+reels\
+  baixar.bat          dois cliques para baixar
+  atualizar.bat       baixa a versão mais nova
+  instalar.bat        instala Python, ffmpeg e bibliotecas (só na primeira vez)
+  cookies.txt         login do Instagram (você coloca)
+  proxy.txt           opcional
+  videos\<conta>\     os reels baixados
+  sistema\            programa, Python, ffmpeg e histórico (não precisa mexer)
+```
 
-## Instalar na VPS (Ubuntu/Debian)
+## Windows (PC ou VPS)
+
+1. Baixe: https://github.com/jxca7/projetos/archive/refs/heads/claude/instagram-reels-downloader-bkjo1e.zip
+2. Extraia e copie a pasta `instagram_reels_downloader` para um caminho curto, ex: `C:\reels`.
+3. Dois cliques em **`instalar.bat`**.
+4. Coloque o `cookies.txt` na pasta (junto do `baixar.bat`).
+5. Dois cliques em **`baixar.bat`**: ele pergunta a conta, quantos reels e se quer os
+   mais recentes ou os mais visualizados.
+
+## Linux (Ubuntu/Debian)
 
 ```bash
 git clone --depth 1 -b claude/instagram-reels-downloader-bkjo1e https://github.com/jxca7/projetos.git
 cd projetos/instagram_reels_downloader
-bash instalar.sh
+bash sistema/instalar.sh
+sistema/.venv/bin/python sistema/reels.py nome_da_conta -n 10
+sistema/.venv/bin/python sistema/reels.py nome_da_conta -n 10 --mais-vistos
 ```
 
-Depois envie o `cookies.txt` (de uma conta logada) para essa pasta. Do seu PC:
+## Opções
 
-```bash
-scp cookies.txt root@IP_DA_VPS:~/projetos/instagram_reels_downloader/
-```
+`-n N` (0 = todos), `--mais-vistos`, `--analisar N` (com --mais-vistos: só entre os N
+mais recentes), `--atualizar-lista`, `-o PASTA`, `--cookies ARQUIVO`,
+`--proxy http://user:senha@host:porta` (ou arquivo `proxy.txt`), `--pausa SEGUNDOS`,
+`--sem-legenda`. Links avulsos de reels também funcionam no lugar do nome da conta.
 
-## Usar
-
-```bash
-cd ~/projetos/instagram_reels_downloader
-.venv/bin/python reels.py                         # pergunta a conta e a quantidade
-.venv/bin/python reels.py nome_da_conta -n 10     # 10 mais recentes
-.venv/bin/python reels.py nome_da_conta -n 0      # todos
-.venv/bin/python reels.py nome_da_conta -n 10 --mais-vistos   # 10 mais visualizados
-.venv/bin/python reels.py https://www.instagram.com/reel/XXXX/   # links avulsos
-```
-
-Opções: `-o PASTA`, `--cookies ARQUIVO`, `--proxy http://user:senha@host:porta`,
-`--pausa SEGUNDOS` (padrão 4), `--sem-legenda`.
-
-Os vídeos vão para `reels_<conta>/` como `conta_DATA_CODIGO.mp4`. Rodar de novo
-só baixa o que falta (`baixados.txt`).
-
-## Se o Instagram bloquear a VPS
-
-IPs de datacenter costumam receber erro 429 / "login não aceito". Nesse caso use
-um **proxy residencial** com `--proxy`, ou rode no seu PC, ou use
-`baixar_reels_navegador.js` no console do Chrome (abra `instagram.com/CONTA/reels/`,
-F12 → Console, cole e Enter).
+Rodar de novo só baixa o que falta. Se o Instagram bloquear (429), espere 1 hora.

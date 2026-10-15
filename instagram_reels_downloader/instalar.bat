@@ -1,6 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+if not exist "sistema\" mkdir sistema
+if not exist "videos\" mkdir videos
+cd /d "%~dp0sistema"
 echo ==========================================
 echo   Instalando o downloader de Reels
 echo ==========================================
@@ -56,7 +59,7 @@ if errorlevel 1 (
 echo.
 echo ==========================================
 echo   PRONTO! Agora:
-echo   1. Coloque o cookies.txt nesta pasta
+echo   1. Coloque o cookies.txt na pasta de fora (junto do baixar.bat)
 echo   2. De dois cliques em baixar.bat
 echo ==========================================
 pause
