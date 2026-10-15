@@ -30,12 +30,20 @@ from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+# curl_cffi conecta exatamente como o Chrome (o Instagram bloqueia conexoes
+# com "cara" de Python). Se nao estiver instalado, usa o requests comum.
 try:
-    import requests
+    from curl_cffi import requests as http
+    CHROME = True
 except ImportError:
-    sys.exit("Falta o requests. Instale com:  pip install -r requirements.txt")
+    try:
+        import requests as http
+    except ImportError:
+        sys.exit("Faltam bibliotecas. Rode o instalar.bat (ou pip install -r requirements.txt)")
+    CHROME = False
+ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15d"
+VERSAO = "2026-10-15e"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -93,6 +101,15 @@ def ler_proxy(valor):
     return f"{esquema}://{valor}"
 
 
+def nova_sessao(proxy=None):
+    s = http.Session(impersonate="chrome") if CHROME else http.Session()
+    if not CHROME:
+        s.headers["User-Agent"] = UA
+    if proxy:
+        s.proxies = {"http": proxy, "https": proxy}
+    return s
+
+
 def criar_sessao(caminho_cookies, proxy=None):
     jar = MozillaCookieJar(str(caminho_cookies))
     try:
@@ -100,7 +117,7 @@ def criar_sessao(caminho_cookies, proxy=None):
     except Exception as e:
         sys.exit(f"Nao consegui ler {caminho_cookies}: {e}\n"
                  "Ele precisa estar no formato Netscape (exporte com 'Get cookies.txt LOCALLY').")
-    s = requests.Session()
+    s = nova_sessao(proxy)
     for c in jar:
         if "instagram.com" in c.domain:
             s.cookies.set(c.name, c.value, domain=".instagram.com", path="/")
@@ -108,7 +125,6 @@ def criar_sessao(caminho_cookies, proxy=None):
         sys.exit("O cookies.txt nao tem o 'sessionid' do Instagram. Exporte de novo, "
                  "estando NA ABA do instagram.com e logado.")
     s.headers.update({
-        "User-Agent": UA,
         "Accept": "*/*",
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
         "X-IG-App-ID": "936619743392459",
@@ -118,8 +134,6 @@ def criar_sessao(caminho_cookies, proxy=None):
         "Origin": IG,
         "Referer": IG + "/",
     })
-    if proxy:
-        s.proxies = {"http": proxy, "https": proxy}
     return s
 
 
@@ -181,8 +195,13 @@ def id_da_conta(s, conta):
     meu_id = s.cookies.get("ds_user_id")
 
     def pela_pagina():
-        r = s.get(f"{IG}/{conta}/", timeout=30, headers={
-            "Accept": "text/html,application/xhtml+xml", "X-Requested-With": None})
+        pag = nova_sessao()
+        pag.proxies = s.proxies
+        for nome in s.cookies.keys():
+            pag.cookies.set(nome, s.cookies.get(nome), domain=".instagram.com", path="/")
+        r = pag.get(f"{IG}/{conta}/", timeout=30,
+                    headers={"Accept": "text/html,application/xhtml+xml",
+                             "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8"})
         if r.status_code == 404:
             raise ErroInstagram(f"A conta @{conta} nao existe.")
         for padrao in (r'"profilePage_(\d+)"', r'"profile_id":"(\d+)"', r'"target_id":"(\d+)"',
@@ -216,8 +235,8 @@ def id_da_conta(s, conta):
 
     def anonimo():
         # sem login (pelo IP do proxy). Muitas vezes funciona quando a conta esta limitada.
-        anon = requests.Session()
-        anon.headers.update({k: v for k, v in s.headers.items() if k != "X-CSRFToken"})
+        anon = nova_sessao()
+        anon.headers.update({k: v for k, v in s.headers.items() if k.lower() != "x-csrftoken"})
         anon.proxies = s.proxies
         try:
             d = pedir_json(anon, "GET", f"{IG}/api/v1/users/web_profile_info/",
@@ -249,7 +268,7 @@ def id_da_conta(s, conta):
                 raise
             ultimo_erro = e
             continue
-        except requests.RequestException as e:
+        except ERROS_REDE as e:
             ultimo_erro = e
             continue
         if user_id:
@@ -344,13 +363,16 @@ def baixar_arquivo(cdn, url, destino):
     (direto, sem gastar o proxy) e, se falhar, as seguintes (pelo proxy)."""
     for i, sessao in enumerate(cdn):
         try:
-            with sessao.get(url, stream=True, timeout=60) as r:
+            r = sessao.get(url, stream=True, timeout=60)
+            try:
                 r.raise_for_status()
                 with open(destino, "wb") as f:
                     for bloco in r.iter_content(1 << 20):
                         f.write(bloco)
+            finally:
+                r.close()
             return
-        except requests.RequestException:
+        except ERROS_REDE:
             if i == len(cdn) - 1:
                 raise
 
@@ -445,7 +467,8 @@ def main():
         sys.exit("O ffmpeg nao esta instalado. Windows: rode o instalar.bat. "
                  "Ubuntu/Debian: sudo apt install -y ffmpeg")
 
-    log(f"Downloader de Reels - versao {VERSAO}")
+    log(f"Downloader de Reels - versao {VERSAO}" + ("" if CHROME else
+        "  (AVISO: curl_cffi nao instalado, rode o instalar.bat de novo)"))
     alvos = args.alvo
     if not alvos:
         alvos = [perguntar("Conta do Instagram (sem @) ou link do reel: ")]
@@ -460,9 +483,8 @@ def main():
         ips = []
         for _ in range(2):
             try:
-                ips.append(requests.get("https://api.ipify.org", proxies={"http": proxy, "https": proxy},
-                                        timeout=20).text.strip())
-            except requests.RequestException as e:
+                ips.append(nova_sessao(proxy).get("https://api.ipify.org", timeout=20).text.strip())
+            except ERROS_REDE as e:
                 sys.exit(f"ERRO: o proxy nao respondeu ({e}). Confira o proxy.txt.")
         if ips[0] != ips[1]:
             log(f"   IP do proxy: {ips[0]} e depois {ips[1]} -> MUDA a cada pedido. O Instagram "
@@ -472,14 +494,9 @@ def main():
     else:
         log("SEM proxy (nao achei o proxy.txt na pasta do programa)")
     s = criar_sessao(achar_cookies(args.cookies), proxy)
-    direto = requests.Session()
-    direto.headers["User-Agent"] = UA
-    cdn = [direto]
+    cdn = [nova_sessao()]
     if proxy:
-        via_proxy = requests.Session()
-        via_proxy.headers["User-Agent"] = UA
-        via_proxy.proxies = s.proxies
-        cdn.append(via_proxy)
+        cdn.append(nova_sessao(proxy))
 
     try:
         if links:
@@ -495,7 +512,7 @@ def main():
             log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
             reels = listar_reels(s, conta, qtd)
             log(f"{len(reels)} reels encontrados.")
-    except (ErroInstagram, requests.RequestException) as e:
+    except (ErroInstagram, *ERROS_REDE) as e:
         sys.exit(f"ERRO: {e}")
 
     pasta.mkdir(parents=True, exist_ok=True)
@@ -519,7 +536,7 @@ def main():
                 f.write(codigo + "\n")
             log(f"{prefixo}  OK  {qualidade}  ->  {arquivo.name}")
             ok += 1
-        except (ErroInstagram, requests.RequestException, subprocess.CalledProcessError, OSError) as e:
+        except (ErroInstagram, *ERROS_REDE, subprocess.CalledProcessError, OSError) as e:
             log(f"{prefixo}  FALHOU: {e}", erro=True)
             falhas.append(codigo)
             if isinstance(e, ErroInstagram) and ("login" in str(e) or "429" in str(e)):
