@@ -221,6 +221,22 @@ async function textoDoErro(page) {
   }, TXT_ERRO_SALVAR);
 }
 
+// Lê a bio que está salva no perfil agora (null se não conseguir ler)
+async function lerBioAtual(page) {
+  try {
+    await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
+    const campo = await page.waitForSelector('textarea#pepBio, textarea[name="biography"], textarea', { timeout: 15000 });
+    return await campo.evaluate((t) => t.value);
+  } catch {
+    return null;
+  }
+}
+
+function avisarSemBio(nome) {
+  process.stdout.write('\x07'); // bipe
+  log(nome, '⚠⚠⚠ ATENÇÃO: o perfil está SEM BIO ⚠⚠⚠');
+}
+
 async function trocarFoto(page, nome, arquivo) {
   // 1ª tentativa: input de arquivo escondido na própria página de edição
   const input = await page.$('input[type="file"][accept*="image"]');
@@ -296,9 +312,10 @@ async function processarConta(nome, arquivoCookies, proxy) {
 
   log(nome, 'Abrindo o Edge...');
   const browser = await abrirEdge(nome, proxy);
+  let page;
 
   try {
-    const page = (await browser.pages())[0] || (await browser.newPage());
+    page = (await browser.pages())[0] || (await browser.newPage());
     if (proxy?.usuario) await page.authenticate({ username: proxy.usuario, password: proxy.senha || '' });
 
     log(nome, 'Colocando cookies...');
@@ -319,6 +336,11 @@ async function processarConta(nome, arquivoCookies, proxy) {
 
     if (bio) await trocarBio(page, nome, bio);
     else log(nome, 'bio.txt vazio, pulando a bio.');
+
+    const bioAtual = await lerBioAtual(page);
+    const semBio = bioAtual !== null && !bioAtual.trim();
+    if (semBio) avisarSemBio(nome);
+    return { semBio };
   } catch (err) {
     // Salva print da tela para ajudar a ver o que deu errado
     try {
@@ -330,6 +352,13 @@ async function processarConta(nome, arquivoCookies, proxy) {
     } catch {}
     log(nome, `ERRO: ${err.message}`);
     err.jaMostrado = true;
+    if (page) {
+      const bioAtual = await lerBioAtual(page);
+      if (bioAtual !== null && !bioAtual.trim()) {
+        err.semBio = true;
+        avisarSemBio(nome);
+      }
+    }
     log(nome, 'O Edge ficou aberto para você ver/testar na mão. Feche o Edge para continuar.');
     await new Promise((r) => browser.once('disconnected', r));
     throw err;
@@ -351,22 +380,35 @@ async function main() {
   fs.mkdirSync(PASTA_FEITOS, { recursive: true });
 
   const resultado = [];
+  const semBioLista = [];
   for (const [i, arquivo] of arquivos.entries()) {
     const nome = path.parse(arquivo).name;
     try {
-      await processarConta(nome, path.join(PASTA_COOKIES, arquivo), proxy);
-      fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(PASTA_FEITOS, arquivo));
-      log(nome, 'OK ✔');
-      resultado.push(`✔ ${nome}`);
+      const { semBio } = await processarConta(nome, path.join(PASTA_COOKIES, arquivo), proxy);
+      if (semBio) {
+        // Fica em cookies/ para tentar de novo na próxima vez
+        semBioLista.push(nome);
+        resultado.push(`⚠ ${nome}: terminou, mas o perfil está SEM BIO`);
+      } else {
+        fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(PASTA_FEITOS, arquivo));
+        log(nome, 'OK ✔');
+        resultado.push(`✔ ${nome}`);
+      }
     } catch (err) {
       if (!err.jaMostrado) log(nome, `ERRO: ${err.message}`);
-      resultado.push(`✘ ${nome}: ${err.message}`);
+      if (err.semBio) semBioLista.push(nome);
+      resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
     if (i < arquivos.length - 1) await pausaHumana(5000, 10000);
   }
 
   console.log('\n===== RESUMO =====');
   resultado.forEach((r) => console.log(r));
+  if (semBioLista.length) {
+    process.stdout.write('\x07');
+    console.log(`\n⚠ PERFIS SEM BIO (${semBioLista.length}): ${semBioLista.join(', ')}`);
+    console.log('  Os cookies deles continuam na pasta cookies/ para você rodar de novo.');
+  }
 }
 
 main().catch((err) => {
