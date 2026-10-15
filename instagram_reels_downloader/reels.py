@@ -50,6 +50,10 @@ except ImportError:
             CHROME = True
         except ImportError as e:
             print(f"curl_cffi instalou mas nao carregou: {e}", flush=True)
+            if "too long" in str(e) or "muito long" in str(e):
+                print("\n>>> O caminho da pasta e longo demais para o Windows. Mova a pasta do\n"
+                      ">>> programa para C:\\reels, apague a pasta .venv e rode o instalar.bat.\n",
+                      flush=True)
 try:
     CHROME
 except NameError:
@@ -60,7 +64,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15f"
+VERSAO = "2026-10-15g"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
