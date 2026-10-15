@@ -1,5 +1,5 @@
-// Para cada arquivo de cookies em cookies/, abre o perfil do Dolphin Anty
-// (o mesmo para todas as contas), troca os cookies e muda a foto e a bio do Instagram.
+// Para cada arquivo de cookies em cookies/, abre o Microsoft Edge (um perfil
+// separado por conta, na pasta navegador/), coloca os cookies e muda a foto e a bio do Instagram.
 // Os arquivos que deram certo vão para cookies/feitos/.
 
 const fs = require('fs');
@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer-core');
 const PASTA = __dirname;
 const PASTA_COOKIES = path.join(PASTA, 'cookies');
 const PASTA_FEITOS = path.join(PASTA_COOKIES, 'feitos');
-const PORTA = 3001;
+const PASTA_NAVEGADOR = path.join(PASTA, 'navegador');
 const URL_EDITAR = 'https://www.instagram.com/accounts/edit/';
 const EXT_FOTO = ['.jpg', '.jpeg', '.png'];
 
@@ -118,75 +118,46 @@ function lerCookies(arquivo) {
   return cookies;
 }
 
-// ---------- Dolphin Anty ----------
+// ---------- Microsoft Edge ----------
 
-async function dolphinLogin(token) {
-  const resp = await fetch(`http://localhost:${PORTA}/v1.0/auth/login-with-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  }).catch(() => null);
-  if (!resp) throw new Error('Não consegui falar com o Dolphin. Ele está aberto?');
-  if (!resp.ok) throw new Error(`O Dolphin recusou o token (HTTP ${resp.status}). Confira o token.txt`);
+function acharEdge() {
+  const candidatos = [
+    process.env.NAVEGADOR,
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft\\Edge\\Application\\msedge.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Microsoft\\Edge\\Application\\msedge.exe'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft\\Edge\\Application\\msedge.exe'),
+  ].filter(Boolean);
+  const achado = candidatos.find((c) => fs.existsSync(c));
+  if (!achado) throw new Error('Não achei o Microsoft Edge instalado neste PC');
+  return achado;
 }
 
-// Lista todos os perfis da conta do Dolphin
-async function listarPerfis(token) {
-  const perfis = [];
-  for (let pagina = 1; ; pagina++) {
-    const resp = await fetch(`https://dolphin-anty-api.com/browser_profiles?limit=100&page=${pagina}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) throw new Error(`Não consegui listar os perfis do Dolphin (HTTP ${resp.status})`);
-    const dados = await resp.json();
-    for (const p of dados.data || []) perfis.push({ id: p.id, nome: String(p.name).trim() });
-    if (!dados.data || dados.data.length < 100 || pagina >= (dados.last_page || pagina)) break;
+// proxy.txt (opcional): host:porta, host:porta:usuario:senha ou http://usuario:senha@host:porta
+function lerProxy() {
+  const linha = lerTexto(path.join(PASTA, 'proxy.txt'));
+  if (!linha) return null;
+  const url = /^\w+:\/\//.test(linha) ? new URL(linha) : null;
+  if (url) {
+    return {
+      servidor: `${url.protocol}//${url.host}`,
+      usuario: decodeURIComponent(url.username) || null,
+      senha: decodeURIComponent(url.password) || null,
+    };
   }
-  return perfis;
+  const [host, porta, usuario, senha] = linha.split(':');
+  return { servidor: `${host}:${porta}`, usuario: usuario || null, senha: senha || null };
 }
 
-// perfil.txt pode ter o nome ou o ID do perfil; vazio = usa o único perfil que existir
-async function escolherPerfil(token) {
-  const escolhido = lerTexto(path.join(PASTA, 'perfil.txt'));
-  if (escolhido && /^\d+$/.test(escolhido)) return escolhido;
-
-  const perfis = await listarPerfis(token);
-  if (escolhido) {
-    const achado = perfis.find((p) => p.nome.toLowerCase() === escolhido.toLowerCase());
-    if (!achado) throw new Error(`Não existe perfil chamado "${escolhido}" no Dolphin. Perfis: ${perfis.map((p) => p.nome).join(', ')}`);
-    return achado.id;
-  }
-  if (perfis.length === 1) return perfis[0].id;
-  throw new Error(`Você tem ${perfis.length} perfis no Dolphin. Escreva no perfil.txt o nome do perfil que quer usar. Perfis: ${perfis.map((p) => p.nome).join(', ')}`);
-}
-
-// Apaga só os cookies do Instagram, para a conta anterior não ficar logada
-async function limparCookiesInstagram(page) {
-  const cdp = await page.createCDPSession();
-  const { cookies } = await cdp.send('Network.getAllCookies');
-  for (const c of cookies) {
-    if (c.domain.includes('instagram.com')) {
-      await cdp.send('Network.deleteCookies', { name: c.name, domain: c.domain, path: c.path });
-    }
-  }
-  await cdp.detach();
-}
-
-async function abrirPerfil(perfilId) {
-  const url = `http://localhost:${PORTA}/v1.0/browser_profiles/${perfilId}/start?automation=1`;
-  const dados = await fetch(url).then((r) => r.json());
-  if (!dados.success || !dados.automation) {
-    throw new Error(`Não consegui abrir o perfil (ele já está aberto?): ${JSON.stringify(dados)}`);
-  }
-  const { port, wsEndpoint } = dados.automation;
-  return puppeteer.connect({
-    browserWSEndpoint: `ws://127.0.0.1:${port}${wsEndpoint}`,
+async function abrirEdge(nome, proxy) {
+  const args = ['--no-first-run', '--no-default-browser-check', '--start-maximized'];
+  if (proxy) args.push(`--proxy-server=${proxy.servidor}`);
+  return puppeteer.launch({
+    executablePath: acharEdge(),
+    headless: false,
     defaultViewport: null,
+    userDataDir: path.join(PASTA_NAVEGADOR, nome),
+    args,
   });
-}
-
-async function fecharPerfil(perfilId) {
-  await fetch(`http://localhost:${PORTA}/v1.0/browser_profiles/${perfilId}/stop`).catch(() => {});
 }
 
 // ---------- Instagram ----------
@@ -271,20 +242,20 @@ async function trocarBio(page, nome, bio) {
   log(nome, 'Bio trocada.');
 }
 
-async function processarConta(nome, perfilId, arquivoCookies) {
+async function processarConta(nome, arquivoCookies, proxy) {
   const cookies = lerCookies(arquivoCookies);
   const foto = fotoDaConta(nome);
   const bio = bioDaConta(nome);
   if (!foto && !bio) throw new Error('Não achei foto nem bio para essa conta');
 
-  log(nome, 'Abrindo perfil no Dolphin...');
-  const browser = await abrirPerfil(perfilId);
+  log(nome, 'Abrindo o Edge...');
+  const browser = await abrirEdge(nome, proxy);
 
   try {
     const page = (await browser.pages())[0] || (await browser.newPage());
+    if (proxy?.usuario) await page.authenticate({ username: proxy.usuario, password: proxy.senha || '' });
 
-    log(nome, 'Trocando cookies...');
-    await limparCookiesInstagram(page);
+    log(nome, 'Colocando cookies...');
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
     await page.setCookie(...cookies);
     await pausaHumana(1500, 3000);
@@ -311,32 +282,27 @@ async function processarConta(nome, perfilId, arquivoCookies) {
     } catch {}
     throw err;
   } finally {
-    browser.disconnect();
-    await fecharPerfil(perfilId);
+    await browser.close().catch(() => {});
   }
 }
 
 async function main() {
-  const token = lerTexto(path.join(PASTA, 'token.txt'));
-  if (!token || token.includes('COLE')) {
-    throw new Error('Cole o token da API do Dolphin no arquivo token.txt');
-  }
-
   const arquivos = fs.readdirSync(PASTA_COOKIES).filter((f) => /\.(json|txt)$/i.test(f));
   if (!arquivos.length) {
     console.log('Nenhum arquivo de cookies na pasta cookies/. Nada a fazer.');
     return;
   }
 
-  await dolphinLogin(token);
-  const perfilId = await escolherPerfil(token);
+  acharEdge();
+  const proxy = lerProxy();
+  if (proxy) console.log(`Usando proxy ${proxy.servidor}`);
   fs.mkdirSync(PASTA_FEITOS, { recursive: true });
 
   const resultado = [];
   for (const [i, arquivo] of arquivos.entries()) {
     const nome = path.parse(arquivo).name;
     try {
-      await processarConta(nome, perfilId, path.join(PASTA_COOKIES, arquivo));
+      await processarConta(nome, path.join(PASTA_COOKIES, arquivo), proxy);
       fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(PASTA_FEITOS, arquivo));
       log(nome, 'OK ✔');
       resultado.push(`✔ ${nome}`);
