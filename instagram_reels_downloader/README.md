@@ -5,6 +5,14 @@
 resolução/bitrate e a melhor faixa de áudio e junta com o ffmpeg **sem
 recodificar** (zero perda). Também salva a legenda de cada reel em `.txt`.
 
+## Instalar no Windows (PC ou VPS Windows)
+
+1. Baixe o código: https://github.com/jxca7/projetos/archive/refs/heads/claude/instagram-reels-downloader-bkjo1e.zip
+2. Extraia o zip e abra a pasta `instagram_reels_downloader`.
+3. Dois cliques em **`instalar.bat`** (baixa Python e ffmpeg sozinho).
+4. Coloque o `cookies.txt` nessa pasta (ou deixe em Downloads).
+5. Dois cliques em **`baixar.bat`**: ele pergunta a conta e quantos reels.
+
 ## Instalar na VPS (Ubuntu/Debian)
 
 ```bash

@@ -53,7 +53,7 @@ def log(msg="", erro=False):
 def achar_cookies(caminho):
     if caminho:
         return Path(caminho)
-    for pasta in (Path.cwd(), Path(__file__).resolve().parent):
+    for pasta in (Path.cwd(), Path(__file__).resolve().parent, Path.home() / "Downloads"):
         for nome in ("cookies.txt", "www.instagram.com_cookies.txt"):
             if (pasta / nome).exists():
                 return pasta / nome
@@ -232,8 +232,21 @@ def baixar_arquivo(cdn, url, destino):
                 f.write(bloco)
 
 
+def achar_ffmpeg():
+    """ffmpeg do sistema, ou o que o instalar.bat baixou na pasta ./ffmpeg (Windows)."""
+    if shutil.which("ffmpeg"):
+        return shutil.which("ffmpeg")
+    local = Path(__file__).resolve().parent / "ffmpeg"
+    for exe in local.rglob("ffmpeg.exe") if local.exists() else []:
+        return str(exe)
+    return None
+
+
+FFMPEG = achar_ffmpeg()
+
+
 def juntar(video, audio, saida):
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video)]
+    cmd = [FFMPEG, "-y", "-loglevel", "error", "-i", str(video)]
     if audio:
         cmd += ["-i", str(audio), "-map", "0:v:0", "-map", "1:a:0"]
     cmd += ["-c", "copy", "-movflags", "+faststart", str(saida)]
@@ -271,7 +284,7 @@ def baixar_reel(s, cdn, midia, pasta):
             qualidade = f"{prog.get('width')}x{prog.get('height')} (arquivo unico)"
         else:
             raise ErroInstagram("nenhuma versao de video encontrada")
-        shutil.move(str(tmp / "final.mp4"), saida)
+        os.replace(tmp / "final.mp4", saida)
 
     if midia.get("caption") and (midia["caption"].get("text")):
         saida.with_suffix(".txt").write_text(midia["caption"]["text"], encoding="utf-8")
@@ -304,8 +317,9 @@ def main():
     p.add_argument("--sem-legenda", action="store_true", help="nao salvar a legenda em .txt")
     args = p.parse_args()
 
-    if not shutil.which("ffmpeg"):
-        sys.exit("O ffmpeg nao esta instalado. No Ubuntu/Debian:  sudo apt install -y ffmpeg")
+    if not FFMPEG:
+        sys.exit("O ffmpeg nao esta instalado. Windows: rode o instalar.bat. "
+                 "Ubuntu/Debian: sudo apt install -y ffmpeg")
 
     alvos = args.alvo
     if not alvos:
