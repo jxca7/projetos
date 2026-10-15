@@ -16,6 +16,7 @@ Precisa de um cookies.txt (formato Netscape) de uma conta logada no Instagram.
 Por padrao procura "cookies.txt" na pasta atual e na pasta do script.
 """
 import argparse
+import json
 import os
 import random
 import re
@@ -64,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15h"
+VERSAO = "2026-10-15i"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -303,9 +304,45 @@ def id_da_conta(s, conta):
                         "Espere 1 hora sem rodar e tente de novo.")
 
 
-def listar_reels(s, conta, quantidade):
-    """Devolve ate `quantidade` reels (dicts de midia), do mais novo ao mais antigo."""
-    user_id = id_da_conta(s, conta)
+DOC_REELS_DO_PERFIL = "7845543455542541"   # PolarisProfileReelsTabContentQuery
+DOC_INFO_DO_POST = "27128499623469141"     # PolarisPostRootQuery (shortcode -> midia)
+
+
+def graphql(s, doc_id, variaveis, referer=None):
+    """Consulta GraphQL do site (a mesma que o instagram.com faz no navegador)."""
+    d = pedir_json(s, "POST", f"{IG}/graphql/query",
+                   data={"variables": json.dumps(variaveis, separators=(",", ":")),
+                         "doc_id": doc_id, "server_timestamps": "true"},
+                   headers={"Referer": referer or IG + "/"})
+    if not d.get("data"):
+        msg = (d.get("errors") or [{}])[0].get("message") or d.get("message") or str(d)[:150]
+        raise ErroInstagram(f"consulta GraphQL falhou: {msg}")
+    return d["data"]
+
+
+def listar_reels_graphql(s, conta, user_id, quantidade):
+    reels, depois = [], None
+    while not quantidade or len(reels) < quantidade:
+        variaveis = {"data": {"page_size": 12, "include_feed_video": True, "target_user_id": user_id},
+                     "__relay_internal__pv__PolarisFeedShareMenurelayprovider": False}
+        if depois:
+            variaveis.update({"after": depois, "before": None, "first": 12, "last": None})
+        d = graphql(s, DOC_REELS_DO_PERFIL, variaveis, f"{IG}/{conta}/reels/")
+        conexao = d.get("xdt_api__v1__clips__user__connection_v2") or {}
+        for borda in conexao.get("edges", []):
+            midia = (borda.get("node") or {}).get("media")
+            if midia and midia.get("code"):
+                reels.append(midia)
+        log(f"   {len(reels)} reels listados...")
+        pag = conexao.get("page_info") or {}
+        depois = pag.get("end_cursor")
+        if not pag.get("has_next_page") or not depois:
+            break
+        time.sleep(random.uniform(2, 4))
+    return reels
+
+
+def listar_reels_rest(s, conta, user_id, quantidade):
     reels, max_id = [], ""
     while not quantidade or len(reels) < quantidade:
         dados = {"target_user_id": user_id, "page_size": "12", "include_feed_video": "true"}
@@ -322,6 +359,19 @@ def listar_reels(s, conta, quantidade):
         if not pag.get("more_available") or not max_id:
             break
         time.sleep(random.uniform(2, 4))
+    return reels
+
+
+def listar_reels(s, conta, quantidade):
+    """Devolve ate `quantidade` reels (dicts de midia), do mais novo ao mais antigo."""
+    user_id = id_da_conta(s, conta)
+    try:
+        reels = listar_reels_graphql(s, conta, user_id, quantidade)
+    except ErroInstagram as e:
+        if "429" in str(e):
+            raise
+        log(f"   listagem pelo GraphQL falhou ({e}); tentando o metodo antigo...", erro=True)
+        reels = listar_reels_rest(s, conta, user_id, quantidade)
     return reels[:quantidade] if quantidade else reels
 
 
@@ -333,6 +383,18 @@ def codigo_para_pk(codigo):
 
 
 def info_do_reel(s, codigo):
+    """Dados completos de um reel (inclui as versoes de video e o manifesto DASH)."""
+    try:
+        d = graphql(s, DOC_INFO_DO_POST,
+                    {"shortcode": codigo,
+                     "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False},
+                    f"{IG}/reel/{codigo}/")
+        itens = (d.get("xdt_api__v1__media__shortcode__web_info") or {}).get("items") or []
+        if itens:
+            return itens[0]
+    except ErroInstagram as e:
+        if "429" in str(e):
+            raise
     d = pedir_json(s, "GET", f"{IG}/api/v1/media/{codigo_para_pk(codigo)}/info/")
     itens = d.get("items") or []
     if not itens:
