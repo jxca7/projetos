@@ -177,13 +177,78 @@ async function salvarPrint(page, nome) {
 
 // ---------- etapas ----------
 
+// site_login.txt: email:senha do site (o mesmo para todas as contas)
+function lerLoginSite() {
+  const linha = lerTexto(path.join(PASTA, 'site_login.txt'));
+  if (!linha || !linha.includes(':') || linha.startsWith('seu@email')) return null;
+  const i = linha.indexOf(':');
+  return { email: linha.slice(0, i).trim(), senha: linha.slice(i + 1).trim() };
+}
+
+// Fecha o pop-up que o site mostra depois do login (propaganda da extensão): clica em "Agora não"
+async function fecharPopup(page, nome) {
+  if (await clicarTexto(page, TXT_AGORA_NAO, 6000)) {
+    log(nome, 'Fechei o pop-up do site ("Agora não").');
+    await pausaHumana(800, 1500);
+    return;
+  }
+  // Sem "Agora não": tenta o "X" do pop-up
+  const x = await page.$('[role="dialog"] [aria-label*="echar" i], [role="dialog"] [aria-label*="lose" i], [aria-modal="true"] [aria-label*="echar" i], [aria-modal="true"] [aria-label*="lose" i]');
+  if (x) {
+    await x.click().catch(() => {});
+    log(nome, 'Fechei o pop-up do site (X).');
+    await pausaHumana(800, 1500);
+  }
+}
+
+// Tela de login do site (EMAIL / SENHA / Entrar): preenche com o site_login.txt
+async function entrarNoSite(page, site, nome) {
+  const naoInstagram = !/instagram\.com|facebook\.com/.test(page.url());
+  const campoEmail = naoInstagram && (await page.$('input[type="email"], input[name="email"], input[placeholder*="email" i]'));
+  const campoSenha = naoInstagram && (await page.$('input[type="password"]'));
+  if (!campoEmail || !campoSenha) return false;
+
+  const login = lerLoginSite();
+  if (!login) {
+    log(nome, '>>> O site pediu login, mas o site_login.txt está vazio. Entre na mão nessa janela do Edge. Estou esperando...');
+    return false;
+  }
+
+  log(nome, 'Entrando no site...');
+  await campoEmail.click({ clickCount: 3 });
+  await campoEmail.type(login.email, { delay: 40 });
+  await campoSenha.click({ clickCount: 3 });
+  await campoSenha.type(login.senha, { delay: 40 });
+  await pausaHumana(500, 1000);
+  const botao = await page.$('button[type="submit"]');
+  if (botao) await botao.click();
+  else if (!(await clicarTexto(page, TXT_ENTRAR, 5000))) await page.keyboard.press('Enter');
+
+  // Espera o login do site terminar e volta para a página do site.txt
+  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {});
+  await pausaHumana(1500, 2500);
+  if (await page.$('input[type="password"]')) throw new Error('O site não aceitou o login do site_login.txt');
+  await fecharPopup(page, nome);
+  if (!(await existeTexto(page, TXT_CONECTAR))) {
+    await page.goto(site, { waitUntil: 'networkidle2', timeout: 60000 });
+    await fecharPopup(page, nome);
+  }
+  log(nome, 'Logado no site.');
+  return true;
+}
+
 async function clicarConectar(page, site, nome) {
   await page.goto(site, { waitUntil: 'networkidle2', timeout: 60000 });
+  await entrarNoSite(page, site, nome);
 
-  // Se o site pedir login, espera você entrar na mão (só acontece na primeira vez)
+  // Se ainda assim pedir login, espera você entrar na mão
   if (!(await clicarTexto(page, TXT_CONECTAR, 15000))) {
-    log(nome, '>>> Não achei "Conectar Instagram". Se o site pediu login, entre na mão nessa janela do Edge. Estou esperando...');
-    if (!(await clicarTexto(page, TXT_CONECTAR, ESPERA_MANUAL))) throw new Error('Não achei o botão "Conectar Instagram"');
+    if (await entrarNoSite(page, site, nome)) {
+      if (!(await clicarTexto(page, TXT_CONECTAR, 15000))) throw new Error('Não achei o botão "Conectar Instagram"');
+    } else {
+      log(nome, '>>> Não achei "Conectar Instagram". Se o site pediu login, entre na mão nessa janela do Edge. Estou esperando...');
+      if (!(await clicarTexto(page, TXT_CONECTAR, ESPERA_MANUAL))) throw new Error('Não achei o botão "Conectar Instagram"');
+    }
   }
   log(nome, 'Cliquei em "Conectar Instagram".');
   await pausaHumana(1500, 2500);
@@ -306,6 +371,10 @@ async function conectarConta(browser, site, conta) {
 async function main() {
   const site = lerTexto(path.join(PASTA, 'site.txt'));
   if (!site || !/^https?:\/\//.test(site)) throw new Error('Coloque o link do site no site.txt (começando com https://)');
+
+  const arqLoginSite = path.join(PASTA, 'site_login.txt');
+  if (!fs.existsSync(arqLoginSite)) fs.writeFileSync(arqLoginSite, 'seu@email.com:suasenha\r\n');
+  if (!lerLoginSite()) console.log('AVISO: site_login.txt não preenchido; se o site pedir login, entre na mão.');
 
   const contas = lerContas();
   if (!contas.length) {
