@@ -1,5 +1,6 @@
 # Renomeie este arquivo para proxy.txt e coloque o seu proxy na linha abaixo.
 # Formatos aceitos:
-#   host:porta:usuario:senha
+#   socks5://host:porta:usuario:senha
+#   socks5://usuario:senha@host:porta
 #   http://usuario:senha@host:porta
-host.exemplo.com:8080:usuario:senha
+socks5://host.exemplo.com:1080:usuario:senha

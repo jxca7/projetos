@@ -64,8 +64,9 @@ def achar_cookies(caminho):
 def ler_proxy(valor):
     """Le o proxy do argumento ou do arquivo proxy.txt e devolve no formato de URL.
 
-    Aceita:  http://usuario:senha@host:porta   |   host:porta:usuario:senha
-             usuario:senha@host:porta          |   host:porta
+    Aceita (http ou socks5):
+        socks5://host:porta:usuario:senha     |   host:porta:usuario:senha  (http)
+        socks5://usuario:senha@host:porta     |   http://usuario:senha@host:porta
     """
     if not valor:
         for pasta in (Path.cwd(), Path(__file__).resolve().parent):
@@ -77,13 +78,17 @@ def ler_proxy(valor):
     if not valor:
         return None
     valor = valor.strip()
+    esquema = "http"
     if "://" in valor:
-        return valor
+        esquema, valor = valor.split("://", 1)
+        esquema = esquema.lower()
+    if esquema == "socks5":
+        esquema = "socks5h"  # resolve os enderecos pelo proxy tambem
     partes = valor.split(":", 3)
     if len(partes) == 4 and partes[1].isdigit():
         host, porta, usuario, senha = partes
-        return f"http://{quote(usuario, safe='')}:{quote(senha, safe='')}@{host}:{porta}"
-    return "http://" + valor
+        return f"{esquema}://{quote(usuario, safe='')}:{quote(senha, safe='')}@{host}:{porta}"
+    return f"{esquema}://{valor}"
 
 
 def criar_sessao(caminho_cookies, proxy=None):
