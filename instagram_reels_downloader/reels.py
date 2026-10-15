@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16b"
+VERSAO = "2026-10-16c"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -345,7 +345,7 @@ def listar_reels_graphql(s, conta, user_id, quantidade):
         depois = pag.get("end_cursor")
         if not pag.get("has_next_page") or not depois:
             break
-        time.sleep(random.uniform(0.8, 1.6))
+        time.sleep(random.uniform(0.3, 0.7))
     return reels
 
 
