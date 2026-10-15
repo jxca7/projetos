@@ -1,5 +1,5 @@
-// Para cada arquivo de cookies em cookies/, abre o perfil do Dolphin Anty com o
-// mesmo nome, coloca os cookies e troca a foto e a bio do Instagram.
+// Para cada arquivo de cookies em cookies/, abre o perfil do Dolphin Anty
+// (o mesmo para todas as contas), troca os cookies e muda a foto e a bio do Instagram.
 // Os arquivos que deram certo vão para cookies/feitos/.
 
 const fs = require('fs');
@@ -92,19 +92,46 @@ async function dolphinLogin(token) {
   if (!resp.ok) throw new Error(`O Dolphin recusou o token (HTTP ${resp.status}). Confira o token.txt`);
 }
 
-// Lista todos os perfis da conta do Dolphin (nome -> id)
+// Lista todos os perfis da conta do Dolphin
 async function listarPerfis(token) {
-  const perfis = new Map();
+  const perfis = [];
   for (let pagina = 1; ; pagina++) {
     const resp = await fetch(`https://dolphin-anty-api.com/browser_profiles?limit=100&page=${pagina}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok) throw new Error(`Não consegui listar os perfis do Dolphin (HTTP ${resp.status})`);
     const dados = await resp.json();
-    for (const p of dados.data || []) perfis.set(String(p.name).trim().toLowerCase(), p.id);
+    for (const p of dados.data || []) perfis.push({ id: p.id, nome: String(p.name).trim() });
     if (!dados.data || dados.data.length < 100 || pagina >= (dados.last_page || pagina)) break;
   }
   return perfis;
+}
+
+// perfil.txt pode ter o nome ou o ID do perfil; vazio = usa o único perfil que existir
+async function escolherPerfil(token) {
+  const escolhido = lerTexto(path.join(PASTA, 'perfil.txt'));
+  if (escolhido && /^\d+$/.test(escolhido)) return escolhido;
+
+  const perfis = await listarPerfis(token);
+  if (escolhido) {
+    const achado = perfis.find((p) => p.nome.toLowerCase() === escolhido.toLowerCase());
+    if (!achado) throw new Error(`Não existe perfil chamado "${escolhido}" no Dolphin. Perfis: ${perfis.map((p) => p.nome).join(', ')}`);
+    return achado.id;
+  }
+  if (perfis.length === 1) return perfis[0].id;
+  throw new Error(`Você tem ${perfis.length} perfis no Dolphin. Escreva no perfil.txt o nome do perfil que quer usar. Perfis: ${perfis.map((p) => p.nome).join(', ')}`);
+}
+
+// Apaga só os cookies do Instagram, para a conta anterior não ficar logada
+async function limparCookiesInstagram(page) {
+  const cdp = await page.createCDPSession();
+  const { cookies } = await cdp.send('Network.getAllCookies');
+  for (const c of cookies) {
+    if (c.domain.includes('instagram.com')) {
+      await cdp.send('Network.deleteCookies', { name: c.name, domain: c.domain, path: c.path });
+    }
+  }
+  await cdp.detach();
 }
 
 async function abrirPerfil(perfilId) {
@@ -218,7 +245,8 @@ async function processarConta(nome, perfilId, arquivoCookies) {
   try {
     const page = (await browser.pages())[0] || (await browser.newPage());
 
-    log(nome, 'Colocando cookies...');
+    log(nome, 'Trocando cookies...');
+    await limparCookiesInstagram(page);
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
     await page.setCookie(...cookies);
     await pausaHumana(1500, 3000);
@@ -263,18 +291,13 @@ async function main() {
   }
 
   await dolphinLogin(token);
-  // Só busca a lista de perfis se algum arquivo não for um ID numérico
-  const perfis = arquivos.every((f) => /^\d+$/.test(path.parse(f).name)) ? new Map() : await listarPerfis(token);
+  const perfilId = await escolherPerfil(token);
   fs.mkdirSync(PASTA_FEITOS, { recursive: true });
 
   const resultado = [];
   for (const [i, arquivo] of arquivos.entries()) {
     const nome = path.parse(arquivo).name;
     try {
-      // O nome do arquivo é o nome do perfil no Dolphin (ou o ID do perfil, se for só número)
-      const perfilId = /^\d+$/.test(nome) ? nome : perfis.get(nome.trim().toLowerCase());
-      if (!perfilId) throw new Error(`Não existe perfil chamado "${nome}" no Dolphin`);
-
       await processarConta(nome, perfilId, path.join(PASTA_COOKIES, arquivo));
       fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(PASTA_FEITOS, arquivo));
       log(nome, 'OK ✔');
