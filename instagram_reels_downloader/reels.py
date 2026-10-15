@@ -64,7 +64,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15g"
+VERSAO = "2026-10-15h"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -165,6 +165,8 @@ def pedir_json(s, metodo, url, tentativas=4, **kw):
         r = s.request(metodo, url, allow_redirects=False, timeout=30, **kw)
         if r.status_code != 200:
             trecho = re.sub(r"\s+", " ", r.text[:160])
+            if r.headers.get("Location"):
+                trecho = "redireciona para " + r.headers["Location"][:120] + " " + trecho
             log(f"   [HTTP {r.status_code}] {metodo} {urlsplit(url).netloc}{urlsplit(url).path} -> {trecho}",
                 erro=True)
         if r.status_code == 429 or (r.status_code == 401 and "wait" in r.text.lower()):
