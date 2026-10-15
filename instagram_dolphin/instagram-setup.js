@@ -50,11 +50,49 @@ function bioDaConta(nome) {
   return bio ? bio.replace(/\r\n/g, '\n') : null;
 }
 
-// Converte o JSON exportado (Cookie-Editor / EditThisCookie / Dolphin) para o formato do Puppeteer
+// Lê o arquivo de cookies em qualquer um destes formatos:
+//   - JSON (Cookie-Editor / EditThisCookie / Dolphin): [{"name": ..., "value": ...}]
+//   - Netscape (cookies.txt): linhas separadas por TAB
+//   - Texto simples: sessionid=...; csrftoken=...; ds_user_id=...
+function lerListaCookies(arquivo) {
+  const texto = fs.readFileSync(arquivo, 'utf8').replace(/^\uFEFF/, '').trim();
+  if (!texto) throw new Error('O arquivo de cookies está vazio');
+
+  if (texto.startsWith('[') || texto.startsWith('{')) {
+    let bruto;
+    try {
+      bruto = JSON.parse(texto);
+    } catch {
+      throw new Error('O JSON de cookies está incompleto ou quebrado (copie de novo o conteúdo inteiro)');
+    }
+    const lista = Array.isArray(bruto) ? bruto : bruto.cookies;
+    if (!Array.isArray(lista)) throw new Error('Formato de cookies não reconhecido (esperava uma lista JSON)');
+    return lista;
+  }
+
+  const linhas = texto.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
+  if (linhas.some((l) => l.split('\t').length >= 7)) {
+    return linhas
+      .map((l) => l.split('\t'))
+      .filter((p) => p.length >= 7)
+      .map(([domain, , cpath, secure, expira, name, value]) => ({
+        domain, path: cpath, secure: secure.toUpperCase() === 'TRUE', expirationDate: Number(expira), name, value,
+      }));
+  }
+
+  return texto
+    .split(/;\s*|\r?\n/)
+    .map((par) => par.trim())
+    .filter((par) => par.includes('='))
+    .map((par) => {
+      const i = par.indexOf('=');
+      return { name: par.slice(0, i).trim(), value: par.slice(i + 1).trim(), domain: '.instagram.com' };
+    });
+}
+
+// Converte para o formato do Puppeteer
 function lerCookies(arquivo) {
-  const bruto = JSON.parse(fs.readFileSync(arquivo, 'utf8').replace(/^﻿/, ''));
-  const lista = Array.isArray(bruto) ? bruto : bruto.cookies;
-  if (!Array.isArray(lista)) throw new Error('Formato de cookies não reconhecido (esperava uma lista JSON)');
+  const lista = lerListaCookies(arquivo);
 
   const mapaSameSite = { no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict' };
 
