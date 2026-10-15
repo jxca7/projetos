@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 try:
     import requests
@@ -58,6 +59,31 @@ def achar_cookies(caminho):
             if (pasta / nome).exists():
                 return pasta / nome
     sys.exit("Nao achei o cookies.txt. Coloque o arquivo na pasta ou use --cookies CAMINHO.")
+
+
+def ler_proxy(valor):
+    """Le o proxy do argumento ou do arquivo proxy.txt e devolve no formato de URL.
+
+    Aceita:  http://usuario:senha@host:porta   |   host:porta:usuario:senha
+             usuario:senha@host:porta          |   host:porta
+    """
+    if not valor:
+        for pasta in (Path.cwd(), Path(__file__).resolve().parent):
+            arq = pasta / "proxy.txt"
+            if arq.exists():
+                linhas = [l.strip() for l in arq.read_text(encoding="utf-8-sig").splitlines()]
+                valor = next((l for l in linhas if l and not l.startswith("#")), None)
+                break
+    if not valor:
+        return None
+    valor = valor.strip()
+    if "://" in valor:
+        return valor
+    partes = valor.split(":", 3)
+    if len(partes) == 4 and partes[1].isdigit():
+        host, porta, usuario, senha = partes
+        return f"http://{quote(usuario, safe='')}:{quote(senha, safe='')}@{host}:{porta}"
+    return "http://" + valor
 
 
 def criar_sessao(caminho_cookies, proxy=None):
@@ -286,11 +312,19 @@ def melhor_progressivo(midia):
 # --------------------------------------------------------------------------- download
 
 def baixar_arquivo(cdn, url, destino):
-    with cdn.get(url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        with open(destino, "wb") as f:
-            for bloco in r.iter_content(1 << 20):
-                f.write(bloco)
+    """Baixa do servidor de videos. `cdn` e uma lista de sessoes: tenta a primeira
+    (direto, sem gastar o proxy) e, se falhar, as seguintes (pelo proxy)."""
+    for i, sessao in enumerate(cdn):
+        try:
+            with sessao.get(url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(destino, "wb") as f:
+                    for bloco in r.iter_content(1 << 20):
+                        f.write(bloco)
+            return
+        except requests.RequestException:
+            if i == len(cdn) - 1:
+                raise
 
 
 def achar_ffmpeg():
@@ -373,7 +407,8 @@ def main():
                    help="quantos reels baixar (os mais recentes). 0 = todos")
     p.add_argument("-o", "--saida", help="pasta de destino (padrao: ./reels_<conta>)")
     p.add_argument("--cookies", help="arquivo cookies.txt (padrao: ./cookies.txt)")
-    p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta")
+    p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta "
+                                   "(ou coloque no arquivo proxy.txt)")
     p.add_argument("--pausa", type=float, default=4, help="segundos entre downloads (padrao: 4)")
     p.add_argument("--sem-legenda", action="store_true", help="nao salvar a legenda em .txt")
     args = p.parse_args()
@@ -389,11 +424,19 @@ def main():
             sys.exit("Nada informado.")
 
     links = [a for a in alvos if re.search(r"/(reel|reels|p|tv)/[A-Za-z0-9_-]+", a)]
-    s = criar_sessao(achar_cookies(args.cookies), args.proxy)
-    cdn = requests.Session()
-    cdn.headers["User-Agent"] = UA
-    if args.proxy:
-        cdn.proxies = s.proxies
+    proxy = ler_proxy(args.proxy)
+    if proxy:
+        u = urlsplit(proxy)
+        log(f"Usando proxy {u.hostname}:{u.port}")
+    s = criar_sessao(achar_cookies(args.cookies), proxy)
+    direto = requests.Session()
+    direto.headers["User-Agent"] = UA
+    cdn = [direto]
+    if proxy:
+        via_proxy = requests.Session()
+        via_proxy.headers["User-Agent"] = UA
+        via_proxy.proxies = s.proxies
+        cdn.append(via_proxy)
 
     try:
         if links:
