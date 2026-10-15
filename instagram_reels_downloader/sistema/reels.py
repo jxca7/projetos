@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16e"
+VERSAO = "2026-10-16f"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -700,6 +700,7 @@ HEADERS_APP = {
     "X-IG-App-ID": "124024574287414",
 }
 QUERY_DESTAQUES = "7c16654f22c819fb63d1183034a5162f"
+QUERY_ITENS_DESTAQUE = "45246d3fe16ccc6577e0bd297a5db1ab"
 
 
 def listar_destaques(s, conta):
@@ -714,7 +715,7 @@ def listar_destaques(s, conta):
     except ErroInstagram as e:
         if "429" in str(e):
             raise
-        log(f"   lista de destaques pelo metodo 1 falhou ({e}); tentando outro...", erro=True)
+        log("   (lista de destaques: metodo 1 indisponivel, tentando o metodo 2)", erro=True)
     variaveis = {"user_id": user_id, "include_chaining": False, "include_reel": False,
                  "include_suggested_users": False, "include_logged_out_extras": False,
                  "include_highlight_reels": True}
@@ -728,10 +729,48 @@ def listar_destaques(s, conta):
             for b in bordas]
 
 
+def item_graphql_para_api(n):
+    """Converte um item de destaque do formato GraphQL antigo para o formato da API
+    (video_versions / image_versions2), que e o que baixar_video/baixar_foto entendem."""
+    item = {"pk": str(n.get("id") or ""), "taken_at": n.get("taken_at_timestamp") or 0}
+    fotos = n.get("display_resources") or []
+    item["image_versions2"] = {"candidates": [
+        {"url": f["src"], "width": f.get("config_width") or 0, "height": f.get("config_height") or 0}
+        for f in fotos if f.get("src")]}
+    if not fotos and n.get("display_url"):
+        item["display_url"] = n["display_url"]
+    if n.get("is_video"):
+        # MAIN antes de BASELINE: na mesma resolucao, MAIN tem melhor qualidade
+        videos = sorted(n.get("video_resources") or [], key=lambda v: v.get("profile") != "MAIN")
+        item["video_versions"] = [
+            {"url": v["src"], "width": v.get("config_width") or 0, "height": v.get("config_height") or 0}
+            for v in videos if v.get("src")]
+        manifesto = (n.get("dash_info") or {}).get("video_dash_manifest")
+        if manifesto:
+            item["video_dash_manifest"] = manifesto
+    return item
+
+
 def itens_do_destaque(s, destaque_id):
     """Fotos e videos de um destaque, com todas as versoes (para escolher a melhor)."""
     rid = f"highlight:{destaque_id}"
     ultimo_erro = None
+    # 1) GraphQL (o que o Instaloader usa)
+    try:
+        variaveis = {"reel_ids": [], "tag_names": [], "location_ids": [],
+                     "highlight_reel_ids": [str(destaque_id)], "precomposed_overlay": False}
+        d = pedir_json(s, "GET", f"{IG}/graphql/query/", tentativas=2,
+                       params={"query_hash": QUERY_ITENS_DESTAQUE,
+                               "variables": json.dumps(variaveis, separators=(",", ":"))})
+        midias = (d.get("data") or {}).get("reels_media") or []
+        if midias and midias[0].get("items"):
+            return [item_graphql_para_api(n) for n in midias[0]["items"]]
+        ultimo_erro = ErroInstagram("resposta sem itens")
+    except ErroInstagram as e:
+        if "429" in str(e):
+            raise
+        ultimo_erro = e
+    # 2) e 3) API do site e do app
     for url, extra in ((f"{IG}/api/v1/feed/reels_media/", {}),
                        ("https://i.instagram.com/api/v1/feed/reels_media/", {"headers": HEADERS_APP})):
         try:
