@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+cookies/*
+!cookies/.gitkeep
+sessoes/
+proxy.txt
+story.jpg
+story.jpeg
+story.png
+erros.txt
