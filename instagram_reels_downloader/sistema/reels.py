@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16d"
+VERSAO = "2026-10-16e"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -643,7 +643,18 @@ def baixar_reel(s, cdn, midia, pasta, conta=None):
     dono = ((midia.get("user") or {}).get("username")) or conta or "instagram"
     data = datetime.fromtimestamp(midia.get("taken_at") or 0, timezone.utc).strftime("%Y%m%d")
     saida = pasta / f"{dono}_{data}_{codigo}.mp4"
+    qualidade = baixar_video(cdn, midia, saida)
 
+    if midia.get("caption") and (midia["caption"].get("text")):
+        saida.with_suffix(".txt").write_text(midia["caption"]["text"], encoding="utf-8")
+    return saida, qualidade
+
+
+def baixar_video(cdn, midia, saida):
+    """Baixa o video de uma midia (reel ou item de destaque) na melhor qualidade:
+    melhor faixa de video + melhor audio do DASH, juntadas sem recodificar; se nao houver
+    DASH, o maior arquivo unico. Devolve a descricao da qualidade."""
+    pasta = saida.parent
     v, a = melhores_faixas_dash(midia.get("video_dash_manifest"))
     prog = melhor_progressivo(midia)
     usar_dash = v and (not prog or v["altura"] * v["largura"] >=
@@ -664,10 +675,179 @@ def baixar_reel(s, cdn, midia, pasta, conta=None):
         else:
             raise ErroInstagram("nenhuma versao de video encontrada")
         os.replace(tmp / "final.mp4", saida)
+    return qualidade
 
-    if midia.get("caption") and (midia["caption"].get("text")):
-        saida.with_suffix(".txt").write_text(midia["caption"]["text"], encoding="utf-8")
-    return saida, qualidade
+
+def baixar_foto(cdn, midia, saida):
+    """Baixa a foto na maior resolucao disponivel. Devolve a descricao da qualidade."""
+    candidatas = (midia.get("image_versions2") or {}).get("candidates") or []
+    if not candidatas and midia.get("display_url"):
+        candidatas = [{"url": midia["display_url"], "width": 0, "height": 0}]
+    if not candidatas:
+        raise ErroInstagram("nenhuma versao de foto encontrada")
+    melhor = max(candidatas, key=lambda c: (c.get("width") or 0) * (c.get("height") or 0))
+    temp = saida.with_name(saida.name + ".parcial")
+    baixar_arquivo(cdn, melhor["url"], temp)
+    os.replace(temp, saida)
+    return f"foto {melhor.get('width') or '?'}x{melhor.get('height') or '?'}"
+
+
+# --------------------------------------------------------------------------- destaques
+
+HEADERS_APP = {
+    "User-Agent": "Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2400; samsung; "
+                  "SM-G991B; o1s; exynos2100; pt_BR)",
+    "X-IG-App-ID": "124024574287414",
+}
+QUERY_DESTAQUES = "7c16654f22c819fb63d1183034a5162f"
+
+
+def listar_destaques(s, conta):
+    """Lista os destaques da conta: [{'id', 'titulo', 'qtd'}], na ordem do perfil."""
+    user_id = id_da_conta(s, conta)
+    try:
+        d = pedir_json(s, "GET", f"{IG}/api/v1/highlights/{user_id}/highlights_tray/", tentativas=2,
+                       headers={"Referer": f"{IG}/{conta}/"})
+        if "tray" in d:
+            return [{"id": str(t["id"]).replace("highlight:", ""), "titulo": t.get("title") or "",
+                     "qtd": t.get("media_count")} for t in d["tray"] if t.get("id")]
+    except ErroInstagram as e:
+        if "429" in str(e):
+            raise
+        log(f"   lista de destaques pelo metodo 1 falhou ({e}); tentando outro...", erro=True)
+    variaveis = {"user_id": user_id, "include_chaining": False, "include_reel": False,
+                 "include_suggested_users": False, "include_logged_out_extras": False,
+                 "include_highlight_reels": True}
+    d = pedir_json(s, "GET", f"{IG}/graphql/query/",
+                   params={"query_hash": QUERY_DESTAQUES,
+                           "variables": json.dumps(variaveis, separators=(",", ":"))})
+    bordas = (((d.get("data") or {}).get("user") or {}).get("edge_highlight_reels") or {}).get("edges")
+    if bordas is None:
+        raise ErroInstagram("o Instagram nao devolveu a lista de destaques")
+    return [{"id": str(b["node"]["id"]), "titulo": b["node"].get("title") or "", "qtd": None}
+            for b in bordas]
+
+
+def itens_do_destaque(s, destaque_id):
+    """Fotos e videos de um destaque, com todas as versoes (para escolher a melhor)."""
+    rid = f"highlight:{destaque_id}"
+    ultimo_erro = None
+    for url, extra in ((f"{IG}/api/v1/feed/reels_media/", {}),
+                       ("https://i.instagram.com/api/v1/feed/reels_media/", {"headers": HEADERS_APP})):
+        try:
+            d = pedir_json(s, "GET", url, tentativas=2, params={"reel_ids": rid}, **extra)
+        except ErroInstagram as e:
+            if "429" in str(e):
+                raise
+            ultimo_erro = e
+            continue
+        reel = (d.get("reels") or {}).get(rid) or ((d.get("reels_media") or [None])[0]) or {}
+        if reel.get("items"):
+            return reel["items"]
+        ultimo_erro = ErroInstagram("destaque sem itens")
+    raise ErroInstagram(f"nao consegui abrir o destaque ({ultimo_erro})")
+
+
+NOMES_RESERVADOS = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                    *(f"LPT{i}" for i in range(1, 10))}
+
+
+def nome_de_pasta(texto, reserva):
+    """Transforma o nome do destaque num nome de pasta valido no Windows."""
+    nome = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", texto or "").strip().rstrip(". ")[:80]
+    if not nome:
+        return reserva
+    return f"_{nome}" if nome.upper() in NOMES_RESERVADOS else nome
+
+
+def escolher_destaques(destaques, resposta):
+    """'' -> todos; '1,3' ou '1 3' ou '2-4' -> esses numeros (1 = primeiro da lista)."""
+    resposta = (resposta or "").strip()
+    if not resposta:
+        return destaques
+    numeros = set()
+    for parte in re.split(r"[,\s]+", resposta):
+        if "-" in parte:
+            ini, _, fim = parte.partition("-")
+            if ini.isdigit() and fim.isdigit():
+                numeros.update(range(int(ini), int(fim) + 1))
+        elif parte.isdigit():
+            numeros.add(int(parte))
+    return [d for i, d in enumerate(destaques, 1) if i in numeros]
+
+
+def baixar_destaques(s, cdn, conta, pasta_conta, dados, escolha, interativo, pausa):
+    """Baixa os destaques da conta, cada um na sua pasta com o nome do destaque.
+    Devolve (baixados, ja_existiam, falhas)."""
+    log(f"Listando os destaques de @{conta}...")
+    destaques = listar_destaques(s, conta)
+    if not destaques:
+        log("Essa conta nao tem destaques.")
+        return 0, 0, 0
+    # nome da pasta de cada destaque, decidido sobre a lista completa para que um
+    # destaque caia sempre na mesma pasta, mesmo escolhendo so alguns
+    usados = set()
+    for i, d in enumerate(destaques, 1):
+        nome = nome_de_pasta(d["titulo"], f"destaque_{d['id']}")
+        if nome.lower() in usados:  # dois destaques com o mesmo nome
+            nome = f"{nome}_{d['id']}"
+        usados.add(nome.lower())
+        d["pasta"] = nome
+        qtd = d.get("qtd")
+        qtd = f" ({qtd} {'item' if qtd == 1 else 'itens'})" if qtd else ""
+        log(f"   {i:>2}. {d['titulo'] or '(sem nome)'}{qtd}")
+    if escolha is None and interativo:
+        escolha = perguntar("Quais destaques? (Enter = todos, ou numeros, ex: 1,3): ", "")
+    destaques = escolher_destaques(destaques, escolha)
+    if not destaques:
+        log("Nenhum destaque escolhido.")
+        return 0, 0, 0
+
+    base = pasta_conta / "destaques"
+    registro = dados / "destaques_baixados.txt"
+    ja = ler_registro(registro)
+    ok = pulados = falhas = 0
+    for n, d in enumerate(destaques, 1):
+        log(f"\n[destaque {n}/{len(destaques)}] {d['titulo'] or '(sem nome)'}")
+        try:
+            itens = itens_do_destaque(s, d["id"])
+        except (ErroInstagram, *ERROS_REDE) as e:
+            log(f"   FALHOU: {e}", erro=True)
+            falhas += 1
+            if "429" in str(e) or "login" in str(e):
+                log("Parando: o Instagram bloqueou. Rode de novo mais tarde; "
+                    "ele continua de onde parou.", erro=True)
+                break
+            continue
+        pasta = base / d["pasta"]
+        pasta.mkdir(parents=True, exist_ok=True)
+        for j, item in enumerate(itens, 1):
+            pk = str(item.get("pk") or item.get("id") or "").split("_")[0]
+            prefixo = f"   [{j}/{len(itens)}]"
+            if pk and pk in ja:
+                pulados += 1
+                continue
+            data = datetime.fromtimestamp(item.get("taken_at") or 0, timezone.utc).strftime("%Y%m%d")
+            arquivo = pasta / f"{j:03d}_{data}_{pk}"
+            try:
+                if item.get("video_versions") or item.get("video_dash_manifest"):
+                    arquivo = arquivo.with_suffix(".mp4")
+                    qualidade = baixar_video(cdn, item, arquivo)
+                else:
+                    arquivo = arquivo.with_suffix(".jpg")
+                    qualidade = baixar_foto(cdn, item, arquivo)
+                with open(registro, "a") as f:
+                    f.write(pk + "\n")
+                log(f"{prefixo} OK  {qualidade}  ->  {arquivo.name}")
+                ok += 1
+            except (ErroInstagram, *ERROS_REDE, subprocess.CalledProcessError, OSError) as e:
+                log(f"{prefixo} FALHOU: {e}", erro=True)
+                falhas += 1
+        if n < len(destaques):
+            time.sleep(random.uniform(pausa, pausa * 1.5))
+    log(f"\nDestaques: {ok} baixados, {pulados} ja existiam, {falhas} falharam.")
+    log(f"Pasta: {base.resolve()}")
+    return ok, pulados, falhas
 
 
 # --------------------------------------------------------------------------- main
@@ -685,7 +865,7 @@ def perguntar(texto, padrao=""):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Baixa Reels do Instagram na melhor qualidade.")
+    p = argparse.ArgumentParser(description="Baixa Reels e Destaques do Instagram na melhor qualidade.")
     p.add_argument("alvo", nargs="*", help="nome da conta, link do perfil, ou links de reels")
     p.add_argument("-n", "--quantidade", type=int,
                    help="quantos reels baixar (os mais recentes). 0 = todos")
@@ -695,7 +875,11 @@ def main():
                    help="com --mais-vistos: quantos reels recentes analisar (padrao: todos)")
     p.add_argument("--atualizar-lista", action="store_true",
                    help="com --mais-vistos: ignora a lista salva e busca tudo de novo")
-    p.add_argument("-o", "--saida", help="pasta de destino (padrao: ./reels_<conta>)")
+    p.add_argument("--destaques", action="store_true", help="baixar so os DESTAQUES (nao os reels)")
+    p.add_argument("--reels-e-destaques", action="store_true", help="baixar os reels e os destaques")
+    p.add_argument("--quais-destaques", metavar="NUMEROS",
+                   help="quais destaques, pela ordem do perfil, ex: 1,3 ou 2-4 (padrao: todos)")
+    p.add_argument("-o", "--saida", help="pasta de destino (padrao: videos/<conta>)")
     p.add_argument("--cookies", help="arquivo cookies.txt (padrao: ./cookies.txt)")
     p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta "
                                    "(ou coloque no arquivo proxy.txt)")
@@ -740,6 +924,7 @@ def main():
         cdn.append(nova_sessao(proxy))
 
     conta = None
+    fazer_reels, fazer_destaques = True, False
     try:
         if links:
             codigos = [re.search(r"/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", l).group(1) for l in links]
@@ -748,16 +933,29 @@ def main():
             reels = [{"code": c} for c in codigos]
         else:
             conta = alvos[0].strip().rstrip("/").split("/")[-1].lstrip("@").lower()
-            qtd = args.quantidade
-            if qtd is None:
-                qtd = int(perguntar("Quantos reels baixar? (Enter = todos): ", "0") or 0)
-            vistos = args.mais_vistos
-            if not vistos and not args.alvo:
-                vistos = perguntar("Quais? [1] mais recentes  [2] mais visualizados  (Enter = 1): ",
-                                   "1").strip() == "2"
+            if args.destaques:
+                tipo = "2"
+            elif args.reels_e_destaques:
+                tipo = "3"
+            elif not args.alvo:
+                tipo = perguntar("O que baixar? [1] reels  [2] destaques  [3] reels e destaques"
+                                 "  (Enter = 1): ", "1").strip()
+            else:
+                tipo = "1"
+            fazer_reels = tipo != "2"
+            fazer_destaques = tipo in ("2", "3")
             pasta = Path(args.saida).expanduser() if args.saida else PASTA_VIDEOS / conta
             dados = dados_da_conta(conta)
-            if vistos:
+            qtd = args.quantidade
+            if fazer_reels and qtd is None:
+                qtd = int(perguntar("Quantos reels baixar? (Enter = todos): ", "0") or 0)
+            vistos = args.mais_vistos
+            if fazer_reels and not vistos and not args.alvo:
+                vistos = perguntar("Quais? [1] mais recentes  [2] mais visualizados  (Enter = 1): ",
+                                   "1").strip() == "2"
+            if not fazer_reels:
+                reels = []
+            elif vistos:
                 log(f"Listando os reels de @{conta} para achar os mais visualizados"
                     + (f" (entre os {args.analisar} mais recentes)" if args.analisar else "") + "...")
                 reels = None if args.atualizar_lista else lista_salva(dados, args.analisar)
@@ -779,6 +977,7 @@ def main():
     ja = ler_registro(registro) | ler_registro(pasta / "baixados.txt")
     ok = pulados = 0
     falhas = []
+    bloqueado = False
 
     for i, midia in enumerate(reels, 1):
         codigo = midia["code"]
@@ -803,15 +1002,29 @@ def main():
             if isinstance(e, ErroInstagram) and ("login" in str(e) or "429" in str(e)):
                 log("Parando: o Instagram bloqueou. Rode de novo mais tarde; "
                     "ele continua de onde parou.", erro=True)
+                bloqueado = True
                 break
         if i < len(reels):
             time.sleep(random.uniform(args.pausa, args.pausa * 1.5))
 
-    log(f"\nPronto: {ok} baixados, {pulados} ja existiam, {len(falhas)} falharam.")
-    log(f"Pasta: {pasta.resolve()}")
-    if falhas:
+    if fazer_reels:
+        log(f"\nReels: {ok} baixados, {pulados} ja existiam, {len(falhas)} falharam.")
+        log(f"Pasta: {pasta.resolve()}")
+
+    falhas_destaques = 0
+    if fazer_destaques and not bloqueado:
+        if fazer_reels:
+            log("")
+        try:
+            _, _, falhas_destaques = baixar_destaques(
+                s, cdn, conta, pasta, dados, args.quais_destaques, not args.alvo, args.pausa)
+        except (ErroInstagram, *ERROS_REDE) as e:
+            log(f"ERRO nos destaques: {e}", erro=True)
+            falhas_destaques = 1
+
+    if falhas or falhas_destaques:
         log("Rode o mesmo comando de novo para tentar so os que faltaram.", erro=True)
-    return 1 if falhas else 0
+    return 1 if (falhas or falhas_destaques) else 0
 
 
 if __name__ == "__main__":
