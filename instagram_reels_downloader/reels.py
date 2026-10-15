@@ -35,7 +35,7 @@ try:
 except ImportError:
     sys.exit("Falta o requests. Instale com:  pip install -r requirements.txt")
 
-VERSAO = "2026-10-15c"
+VERSAO = "2026-10-15d"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -128,6 +128,10 @@ def pedir_json(s, metodo, url, tentativas=4, **kw):
     espera = 60
     for tentativa in range(1, tentativas + 1):
         r = s.request(metodo, url, allow_redirects=False, timeout=30, **kw)
+        if r.status_code != 200:
+            trecho = re.sub(r"\s+", " ", r.text[:160])
+            log(f"   [HTTP {r.status_code}] {metodo} {urlsplit(url).netloc}{urlsplit(url).path} -> {trecho}",
+                erro=True)
         if r.status_code == 429 or (r.status_code == 401 and "wait" in r.text.lower()):
             if tentativa == tentativas:
                 raise ErroInstagram("O Instagram esta limitando as requisicoes (429). "
@@ -210,6 +214,19 @@ def id_da_conta(s, conta):
             raise ErroInstagram(f"A conta @{conta} e privada e voce nao a segue.")
         return str(user["id"])
 
+    def anonimo():
+        # sem login (pelo IP do proxy). Muitas vezes funciona quando a conta esta limitada.
+        anon = requests.Session()
+        anon.headers.update({k: v for k, v in s.headers.items() if k != "X-CSRFToken"})
+        anon.proxies = s.proxies
+        try:
+            d = pedir_json(anon, "GET", f"{IG}/api/v1/users/web_profile_info/",
+                           tentativas=1, params={"username": conta})
+        except ErroInstagram as e:
+            raise ErroInstagram(f"sem login: {e}".replace("login dos cookies", "acesso"))
+        user = (d.get("data") or {}).get("user")
+        return str(user["id"]) if user else None
+
     def pelo_site(tentativas):
         d = pedir_json(s, "GET", f"{IG}/api/v1/users/web_profile_info/",
                        tentativas=tentativas, params={"username": conta})
@@ -218,14 +235,17 @@ def id_da_conta(s, conta):
             raise ErroInstagram(f"A conta @{conta} nao foi encontrada.")
         return str(user["id"])
 
-    caminhos = [pela_pagina, pela_busca, lambda: pelo_app(1), lambda: pelo_site(1),
-                lambda: pelo_app(4)]
+    caminhos = [("pagina do perfil", pela_pagina), ("busca", pela_busca),
+                ("sem login", anonimo), ("app", lambda: pelo_app(1)),
+                ("site", lambda: pelo_site(1)), ("app, com espera", lambda: pelo_app(4))]
     ultimo_erro = None
-    for caminho in caminhos:
+    for nome, caminho in caminhos:
+        log(f"   procurando o ID da conta: {nome}...")
         try:
             user_id = caminho()
         except ErroInstagram as e:
-            if "nao existe" in str(e) or "privada" in str(e) or "login" in str(e):
+            if "nao existe" in str(e) or "privada" in str(e) or (
+                    "login" in str(e) and not str(e).startswith("sem login")):
                 raise
             ultimo_erro = e
             continue
@@ -233,6 +253,7 @@ def id_da_conta(s, conta):
             ultimo_erro = e
             continue
         if user_id:
+            log(f"   ID de @{conta}: {user_id}")
             with open(CACHE_IDS, "a") as f:
                 f.write(f"{conta} {user_id}\n")
             return user_id
@@ -436,6 +457,18 @@ def main():
     if proxy:
         u = urlsplit(proxy)
         log(f"Usando proxy {u.hostname}:{u.port}")
+        ips = []
+        for _ in range(2):
+            try:
+                ips.append(requests.get("https://api.ipify.org", proxies={"http": proxy, "https": proxy},
+                                        timeout=20).text.strip())
+            except requests.RequestException as e:
+                sys.exit(f"ERRO: o proxy nao respondeu ({e}). Confira o proxy.txt.")
+        if ips[0] != ips[1]:
+            log(f"   IP do proxy: {ips[0]} e depois {ips[1]} -> MUDA a cada pedido. O Instagram "
+                "desconfia de login trocando de IP; se possivel use IP fixo (sessao 'sticky').")
+        else:
+            log(f"   IP do proxy: {ips[0]} (fixo)")
     else:
         log("SEM proxy (nao achei o proxy.txt na pasta do programa)")
     s = criar_sessao(achar_cookies(args.cookies), proxy)
