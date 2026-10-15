@@ -28,11 +28,6 @@ const TXT_CONVITES = ['Convites do testador', 'Convites de testador', 'Tester in
 const TXT_ACEITAR = ['Aceitar', 'Accept'];
 const TXT_SEM_CONVITES = ['não tem convites', 'nenhum convite', 'no tester invites', "don't have any", 'não tem nenhum'];
 
-// Conta profissional: Criador de conteúdo > Blog pessoal
-const TXT_CRIADOR = ['Criador de conteúdo', 'Criador', 'Creator'];
-const TXT_BLOG_PESSOAL = ['Blog pessoal', 'Personal blog', 'Personal Blog'];
-const TXT_AVANCAR = ['Avançar', 'Próximo', 'Next', 'Continuar', 'Continue', 'Concluir', 'Concluído', 'Done', 'OK', 'Confirmar', 'Confirm'];
-
 // ---------- utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -298,51 +293,6 @@ async function aceitarConvitesTestador(page, nome) {
   else log(nome, 'AVISO: não achei nenhum botão "Aceitar" nos convites do testador.');
 }
 
-async function virarCriadorBlogPessoal(page, nome) {
-  log(nome, 'Selecionando Criador de conteúdo > Blog pessoal...');
-  await pausaHumana(1500, 2500);
-
-  // Normalmente aparece depois de aceitar o convite; se não apareceu, abre a tela de conta profissional
-  if (!(await paginaContem(page, [...TXT_CRIADOR, ...TXT_BLOG_PESSOAL]))) {
-    await page.goto('https://www.instagram.com/accounts/convert_to_professional_account/', { waitUntil: 'networkidle2', timeout: 60000 });
-    await pausaHumana(2000, 3500);
-  }
-
-  // A ordem das telas muda: vai clicando no que aparecer até não ter mais o que fazer
-  let fezCriador = false;
-  let fezBlog = false;
-  for (let passo = 0, parado = 0; passo < 15 && parado < 3; passo++) {
-    let agiu = false;
-    if (!fezCriador && (await clicarTexto(page, TXT_CRIADOR, 2000))) {
-      fezCriador = agiu = true;
-      log(nome, '"Criador de conteúdo" selecionado.');
-    } else if (!fezBlog && (await clicarTexto(page, TXT_BLOG_PESSOAL, 2000))) {
-      fezBlog = agiu = true;
-      log(nome, '"Blog pessoal" selecionado.');
-    } else if (!fezBlog) {
-      // Lista de categorias com busca: digita para "Blog pessoal" aparecer
-      const busca = await page.$('input[type="search"], input[placeholder*="esquis"], input[placeholder*="earch"]');
-      if (busca) {
-        await busca.click({ clickCount: 3 });
-        await busca.type('Blog pessoal', { delay: 60 });
-        await pausaHumana(1500, 2500);
-        if (await clicarTexto(page, TXT_BLOG_PESSOAL, 3000)) {
-          fezBlog = agiu = true;
-          log(nome, '"Blog pessoal" selecionado.');
-        }
-      }
-    }
-    if (await clicarTexto(page, TXT_AVANCAR, 2000)) agiu = true;
-    parado = agiu ? 0 : parado + 1;
-    await pausaHumana(1500, 3000);
-  }
-
-  if (!fezCriador || !fezBlog) {
-    throw new Error(`Não consegui selecionar ${!fezCriador ? '"Criador de conteúdo"' : ''}${!fezCriador && !fezBlog ? ' e ' : ''}${!fezBlog ? '"Blog pessoal"' : ''}`);
-  }
-  log(nome, 'Criador de conteúdo / Blog pessoal OK.');
-}
-
 // Lê a bio que está salva no perfil agora (null se não conseguir ler)
 async function lerBioAtual(page) {
   try {
@@ -460,7 +410,6 @@ async function processarConta(nome, arquivoCookies, proxy) {
     else log(nome, 'bio.txt vazio, pulando a bio.');
 
     await aceitarConvitesTestador(page, nome);
-    await virarCriadorBlogPessoal(page, nome);
 
     const bioAtual = await lerBioAtual(page);
     const semBio = bioAtual !== null && !bioAtual.trim();

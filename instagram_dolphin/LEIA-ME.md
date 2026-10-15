@@ -11,8 +11,8 @@ Instale o **Node.js LTS** (https://nodejs.org). O Microsoft Edge já vem no Wind
 4. Clique duas vezes em **`rodar.bat`**.
 
 O script abre o Edge para uma conta de cada vez, coloca os cookies, troca a foto e a bio,
-aceita os convites do testador (Permissões do site do app > Apps e sites > Convites do testador),
-seleciona Criador de conteúdo > Blog pessoal e fecha. Cada conta usa um perfil separado do Edge, guardado na pasta `navegador/`, então
+aceita os convites do testador (Permissões do site do app > Apps e sites > Convites do testador)
+e fecha. Cada conta usa um perfil separado do Edge, guardado na pasta `navegador/`, então
 o seu Edge normal não é mexido. As contas que deram certo vão para `cookies/feitos/`. As que
 deram erro continuam em `cookies/`, então é só rodar de novo.
 
