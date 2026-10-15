@@ -40,9 +40,15 @@ function acharFoto(base) {
   return null;
 }
 
+// Qualquer imagem solta na pasta principal (o Windows às vezes esconde a extensão e vira foto.jpg.jpg)
+function primeiraImagem(pasta) {
+  const img = fs.readdirSync(pasta).find((f) => EXT_FOTO.includes(path.extname(f).toLowerCase()));
+  return img ? path.join(pasta, img) : null;
+}
+
 // Foto e bio: primeiro a da conta (fotos/<nome>.jpg, bios/<nome>.txt), senão a padrão (foto.jpg, bio.txt)
 function fotoDaConta(nome) {
-  return acharFoto(path.join(PASTA, 'fotos', nome)) || acharFoto(path.join(PASTA, 'foto'));
+  return acharFoto(path.join(PASTA, 'fotos', nome)) || acharFoto(path.join(PASTA, 'foto')) || primeiraImagem(PASTA);
 }
 
 function bioDaConta(nome) {
@@ -264,6 +270,7 @@ async function processarConta(nome, arquivoCookies, proxy) {
     await verificarLogado(page);
     await pausaHumana(2000, 4000);
 
+    if (!foto) log(nome, 'Nenhuma foto .jpg/.png na pasta, pulando a foto.');
     if (foto) {
       await trocarFoto(page, nome, foto);
       await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
@@ -271,6 +278,7 @@ async function processarConta(nome, arquivoCookies, proxy) {
     }
 
     if (bio) await trocarBio(page, nome, bio);
+    else log(nome, 'bio.txt vazio, pulando a bio.');
   } catch (err) {
     // Salva print da tela para ajudar a ver o que deu errado
     try {
