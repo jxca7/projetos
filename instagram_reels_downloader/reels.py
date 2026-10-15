@@ -32,10 +32,27 @@ from urllib.parse import quote, urlsplit
 
 # curl_cffi conecta exatamente como o Chrome (o Instagram bloqueia conexoes
 # com "cara" de Python). Se nao estiver instalado, usa o requests comum.
+def _instalar_curl_cffi():
+    print("Instalando a biblioteca curl_cffi (so na primeira vez)...", flush=True)
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "curl_cffi"])
+    return r.returncode == 0
+
+
 try:
     from curl_cffi import requests as http
     CHROME = True
 except ImportError:
+    import importlib
+    if _instalar_curl_cffi():
+        importlib.invalidate_caches()
+        try:
+            from curl_cffi import requests as http
+            CHROME = True
+        except ImportError as e:
+            print(f"curl_cffi instalou mas nao carregou: {e}", flush=True)
+try:
+    CHROME
+except NameError:
     try:
         import requests as http
     except ImportError:
@@ -43,7 +60,7 @@ except ImportError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15e"
+VERSAO = "2026-10-15f"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
