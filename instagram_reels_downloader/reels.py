@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15j"
+VERSAO = "2026-10-15k"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -404,7 +404,7 @@ def info_do_reel(s, codigo):
 
 # --------------------------------------------------------------------------- qualidade
 
-def melhores_faixas_dash(manifesto):
+def melhores_faixas_dash(manifesto, preferir_h264=True):
     """Do manifesto DASH, devolve (melhor_video, melhor_audio); cada um = dict ou None."""
     if not manifesto:
         return None, None
@@ -429,9 +429,13 @@ def melhores_faixas_dash(manifesto):
                 "largura": int(rep.get("width") or 0),
                 "altura": int(rep.get("height") or 0),
                 "bitrate": int(rep.get("bandwidth") or 0),
+                "codec": (rep.get("codecs") or aset.get("codecs") or "").lower(),
             }
             (audios if "audio" in tipo else videos).append(faixa)
-    melhor_v = max(videos, key=lambda f: (f["altura"] * f["largura"], f["bitrate"]), default=None)
+    # maior resolucao; empatando, prefere H.264 (avc1), que abre em qualquer programa
+    melhor_v = max(videos, key=lambda f: (f["altura"] * f["largura"],
+                                          preferir_h264 and f["codec"].startswith("avc"),
+                                          f["bitrate"]), default=None)
     melhor_a = max(audios, key=lambda f: f["bitrate"], default=None)
     return melhor_v, melhor_a
 
@@ -484,15 +488,28 @@ def juntar(video, audio, saida):
     subprocess.run(cmd, check=True)
 
 
-def resolucao_real(arquivo):
-    """Le a resolucao do video baixado (pelo ffmpeg), ex: '1080x1920'."""
+NOMES_CODEC = {"h264": "H.264", "hevc": "H.265", "vp9": "VP9", "av1": "AV1"}
+
+
+def info_video(arquivo):
+    """Le resolucao e formato do video baixado (pelo ffmpeg). Ex: ('1080x1920', 'h264')."""
     r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(arquivo)], capture_output=True, text=True,
                        errors="replace")
-    m = re.search(r"Video:.*?, (\d{2,5})x(\d{2,5})", r.stderr)
-    return f"{m.group(1)}x{m.group(2)}" if m else "?"
+    m = re.search(r"Video: (\w+).*?, (\d{2,5})x(\d{2,5})", r.stderr)
+    return (f"{m.group(2)}x{m.group(3)}", m.group(1)) if m else ("?", "?")
 
 
-def baixar_reel(s, cdn, midia, pasta, conta=None):
+def converter_h264(arquivo):
+    """Converte o video para H.264 (abre em qualquer player/editor). CRF 16 = sem perda visivel."""
+    temp = arquivo.with_name("h264_" + arquivo.name)
+    subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", str(arquivo),
+                    "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
+                    "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "copy",
+                    "-movflags", "+faststart", str(temp)], check=True)
+    os.replace(temp, arquivo)
+
+
+def baixar_reel(s, cdn, midia, pasta, conta=None, manter_original=False):
     """Baixa um reel na melhor qualidade. Devolve (caminho, descricao_da_qualidade)."""
     codigo = midia["code"]
     # a listagem traz dados incompletos: busca os dados completos do reel
@@ -511,7 +528,7 @@ def baixar_reel(s, cdn, midia, pasta, conta=None):
     data = datetime.fromtimestamp(midia.get("taken_at") or 0, timezone.utc).strftime("%Y%m%d")
     saida = pasta / f"{dono}_{data}_{codigo}.mp4"
 
-    v, a = melhores_faixas_dash(midia.get("video_dash_manifest"))
+    v, a = melhores_faixas_dash(midia.get("video_dash_manifest"), preferir_h264=not manter_original)
     prog = melhor_progressivo(midia)
     usar_dash = v and (not prog or v["altura"] * v["largura"] >=
                        (prog.get("height") or 0) * (prog.get("width") or 0))
@@ -523,13 +540,20 @@ def baixar_reel(s, cdn, midia, pasta, conta=None):
             if a:
                 baixar_arquivo(cdn, a["url"], tmp / "a.mp4")
             juntar(tmp / "v.mp4", tmp / "a.mp4" if a else None, tmp / "final.mp4")
-            qualidade = f"{resolucao_real(tmp / 'final.mp4')} video {v['bitrate'] // 1000} kbps"
+            qualidade = f"video {v['bitrate'] // 1000} kbps"
             qualidade += f" + audio {a['bitrate'] // 1000} kbps" if a else " (sem audio)"
         elif prog:
             baixar_arquivo(cdn, prog["url"], tmp / "final.mp4")
-            qualidade = f"{resolucao_real(tmp / 'final.mp4')} (arquivo unico)"
+            qualidade = "(arquivo unico)"
         else:
             raise ErroInstagram("nenhuma versao de video encontrada")
+        resolucao, codec = info_video(tmp / "final.mp4")
+        nome_codec = NOMES_CODEC.get(codec, codec)
+        if codec != "h264" and codec != "?" and not manter_original:
+            log(f"   veio em {nome_codec}; convertendo para H.264 (abre em qualquer programa)...")
+            converter_h264(tmp / "final.mp4")
+            nome_codec = f"H.264, convertido de {nome_codec}"
+        qualidade = f"{resolucao} {nome_codec}, {qualidade}"
         os.replace(tmp / "final.mp4", saida)
 
     if midia.get("caption") and (midia["caption"].get("text")):
@@ -562,6 +586,8 @@ def main():
                                    "(ou coloque no arquivo proxy.txt)")
     p.add_argument("--pausa", type=float, default=4, help="segundos entre downloads (padrao: 4)")
     p.add_argument("--sem-legenda", action="store_true", help="nao salvar a legenda em .txt")
+    p.add_argument("--original", action="store_true",
+                   help="nao converter VP9/AV1 para H.264 (mantem o arquivo exatamente como o Instagram entrega)")
     args = p.parse_args()
 
     if not FFMPEG:
@@ -631,7 +657,7 @@ def main():
             pulados += 1
             continue
         try:
-            arquivo, qualidade = baixar_reel(s, cdn, midia, pasta, conta)
+            arquivo, qualidade = baixar_reel(s, cdn, midia, pasta, conta, args.original)
             if args.sem_legenda:
                 arquivo.with_suffix(".txt").unlink(missing_ok=True)
             with open(registro, "a") as f:

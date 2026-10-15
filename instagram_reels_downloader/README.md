@@ -38,7 +38,8 @@ cd ~/projetos/instagram_reels_downloader
 ```
 
 Opções: `-o PASTA`, `--cookies ARQUIVO`, `--proxy http://user:senha@host:porta`,
-`--pausa SEGUNDOS` (padrão 4), `--sem-legenda`.
+`--pausa SEGUNDOS` (padrão 4), `--sem-legenda`, `--original` (não converte VP9/AV1
+para H.264; por padrão converte, para abrir em qualquer player/editor).
 
 Os vídeos vão para `reels_<conta>/` como `conta_DATA_CODIGO.mp4`. Rodar de novo
 só baixa o que falta (`baixados.txt`).
