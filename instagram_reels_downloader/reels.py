@@ -35,6 +35,7 @@ try:
 except ImportError:
     sys.exit("Falta o requests. Instale com:  pip install -r requirements.txt")
 
+VERSAO = "2026-10-15c"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -70,8 +71,9 @@ def ler_proxy(valor):
     """
     if not valor:
         for pasta in (Path.cwd(), Path(__file__).resolve().parent):
-            arq = pasta / "proxy.txt"
-            if arq.exists():
+            arq = next((pasta / n for n in ("proxy.txt", "proxy.txt.txt", "proxy")
+                        if (pasta / n).is_file()), None)
+            if arq:
                 linhas = [l.strip() for l in arq.read_text(encoding="utf-8-sig").splitlines()]
                 valor = next((l for l in linhas if l and not l.startswith("#")), None)
                 break
@@ -422,6 +424,7 @@ def main():
         sys.exit("O ffmpeg nao esta instalado. Windows: rode o instalar.bat. "
                  "Ubuntu/Debian: sudo apt install -y ffmpeg")
 
+    log(f"Downloader de Reels - versao {VERSAO}")
     alvos = args.alvo
     if not alvos:
         alvos = [perguntar("Conta do Instagram (sem @) ou link do reel: ")]
@@ -433,6 +436,8 @@ def main():
     if proxy:
         u = urlsplit(proxy)
         log(f"Usando proxy {u.hostname}:{u.port}")
+    else:
+        log("SEM proxy (nao achei o proxy.txt na pasta do programa)")
     s = criar_sessao(achar_cookies(args.cookies), proxy)
     direto = requests.Session()
     direto.headers["User-Agent"] = UA
