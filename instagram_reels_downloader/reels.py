@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-15i"
+VERSAO = "2026-10-15j"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -438,7 +438,8 @@ def melhores_faixas_dash(manifesto):
 
 def melhor_progressivo(midia):
     versoes = midia.get("video_versions") or []
-    return max(versoes, key=lambda v: (v.get("width", 0) * v.get("height", 0)), default=None)
+    # o Instagram costuma listar a melhor primeiro; max() mantem a primeira em caso de empate
+    return max(versoes, key=lambda v: (v.get("width") or 0) * (v.get("height") or 0), default=None)
 
 
 # --------------------------------------------------------------------------- download
@@ -483,21 +484,37 @@ def juntar(video, audio, saida):
     subprocess.run(cmd, check=True)
 
 
-def baixar_reel(s, cdn, midia, pasta):
+def resolucao_real(arquivo):
+    """Le a resolucao do video baixado (pelo ffmpeg), ex: '1080x1920'."""
+    r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(arquivo)], capture_output=True, text=True,
+                       errors="replace")
+    m = re.search(r"Video:.*?, (\d{2,5})x(\d{2,5})", r.stderr)
+    return f"{m.group(1)}x{m.group(2)}" if m else "?"
+
+
+def baixar_reel(s, cdn, midia, pasta, conta=None):
     """Baixa um reel na melhor qualidade. Devolve (caminho, descricao_da_qualidade)."""
     codigo = midia["code"]
-    if not midia.get("video_dash_manifest") and not midia.get("video_versions"):
-        midia = info_do_reel(s, codigo)
+    # a listagem traz dados incompletos: busca os dados completos do reel
+    # (versoes de video com resolucao, manifesto DASH, data, autor)
+    if not midia.get("video_dash_manifest") or not midia.get("taken_at"):
+        try:
+            midia = {**midia, **info_do_reel(s, codigo)}
+        except ErroInstagram as e:
+            if "429" in str(e) or not midia.get("video_versions"):
+                raise
+            log(f"   (nao consegui os dados completos: {e}; usando o que a lista trouxe)", erro=True)
     if midia.get("media_type") != 2 and not midia.get("video_versions"):
         raise ErroInstagram("este post nao e video")
 
-    dono = ((midia.get("user") or {}).get("username")) or "instagram"
+    dono = ((midia.get("user") or {}).get("username")) or conta or "instagram"
     data = datetime.fromtimestamp(midia.get("taken_at") or 0, timezone.utc).strftime("%Y%m%d")
     saida = pasta / f"{dono}_{data}_{codigo}.mp4"
 
     v, a = melhores_faixas_dash(midia.get("video_dash_manifest"))
     prog = melhor_progressivo(midia)
-    usar_dash = v and (not prog or v["altura"] * v["largura"] >= prog.get("height", 0) * prog.get("width", 0))
+    usar_dash = v and (not prog or v["altura"] * v["largura"] >=
+                       (prog.get("height") or 0) * (prog.get("width") or 0))
 
     with tempfile.TemporaryDirectory(dir=pasta) as tmp:
         tmp = Path(tmp)
@@ -506,12 +523,11 @@ def baixar_reel(s, cdn, midia, pasta):
             if a:
                 baixar_arquivo(cdn, a["url"], tmp / "a.mp4")
             juntar(tmp / "v.mp4", tmp / "a.mp4" if a else None, tmp / "final.mp4")
-            qualidade = f"{v['largura']}x{v['altura']} {v['bitrate'] // 1000} kbps"
-            if a:
-                qualidade += f" + audio {a['bitrate'] // 1000} kbps"
+            qualidade = f"{resolucao_real(tmp / 'final.mp4')} video {v['bitrate'] // 1000} kbps"
+            qualidade += f" + audio {a['bitrate'] // 1000} kbps" if a else " (sem audio)"
         elif prog:
             baixar_arquivo(cdn, prog["url"], tmp / "final.mp4")
-            qualidade = f"{prog.get('width')}x{prog.get('height')} (arquivo unico)"
+            qualidade = f"{resolucao_real(tmp / 'final.mp4')} (arquivo unico)"
         else:
             raise ErroInstagram("nenhuma versao de video encontrada")
         os.replace(tmp / "final.mp4", saida)
@@ -583,6 +599,7 @@ def main():
     if proxy:
         cdn.append(nova_sessao(proxy))
 
+    conta = None
     try:
         if links:
             codigos = [re.search(r"/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", l).group(1) for l in links]
@@ -614,7 +631,7 @@ def main():
             pulados += 1
             continue
         try:
-            arquivo, qualidade = baixar_reel(s, cdn, midia, pasta)
+            arquivo, qualidade = baixar_reel(s, cdn, midia, pasta, conta)
             if args.sem_legenda:
                 arquivo.with_suffix(".txt").unlink(missing_ok=True)
             with open(registro, "a") as f:
