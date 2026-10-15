@@ -1,0 +1,13 @@
+{
+  "name": "instagram-conectar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Conecta contas do Instagram num site via OAuth da Meta, uma de cada vez, pelo Microsoft Edge",
+  "main": "conectar.js",
+  "scripts": {
+    "start": "node conectar.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
