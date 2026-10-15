@@ -1,16 +1,17 @@
-// Seta os cookies do Instagram em perfis do Dolphin Anty, depois troca a bio
-// e a foto de perfil de cada conta listada em config.json.
-//
-// Uso:
-//   node instagram-setup.js            -> roda todas as contas
-//   node instagram-setup.js conta2     -> roda só a conta com esse "nome"
+// Para cada arquivo de cookies em cookies/, abre o perfil do Dolphin Anty com o
+// mesmo nome, coloca os cookies e troca a foto e a bio do Instagram.
+// Os arquivos que deram certo vão para cookies/feitos/.
 
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
 
 const PASTA = __dirname;
+const PASTA_COOKIES = path.join(PASTA, 'cookies');
+const PASTA_FEITOS = path.join(PASTA_COOKIES, 'feitos');
+const PORTA = 3001;
 const URL_EDITAR = 'https://www.instagram.com/accounts/edit/';
+const EXT_FOTO = ['.jpg', '.jpeg', '.png'];
 
 // Textos dos botões em português e inglês (o Instagram muda conforme o idioma da conta)
 const TXT_ENVIAR = ['Enviar', 'Submit', 'Salvar', 'Save'];
@@ -27,24 +28,37 @@ function log(conta, msg) {
   console.log(`[${hora}] [${conta}] ${msg}`);
 }
 
-function carregarConfig() {
-  const arq = path.join(PASTA, 'config.json');
-  if (!fs.existsSync(arq)) {
-    console.error('config.json não encontrado. Copie config.exemplo.json para config.json e preencha.');
-    process.exit(1);
+function lerTexto(arquivo) {
+  return fs.existsSync(arquivo) ? fs.readFileSync(arquivo, 'utf8').replace(/^﻿/, '').trim() : null;
+}
+
+// Procura <base>.jpg/.jpeg/.png
+function acharFoto(base) {
+  for (const ext of EXT_FOTO) {
+    if (fs.existsSync(base + ext)) return base + ext;
   }
-  return JSON.parse(fs.readFileSync(arq, 'utf8'));
+  return null;
+}
+
+// Foto e bio: primeiro a da conta (fotos/<nome>.jpg, bios/<nome>.txt), senão a padrão (foto.jpg, bio.txt)
+function fotoDaConta(nome) {
+  return acharFoto(path.join(PASTA, 'fotos', nome)) || acharFoto(path.join(PASTA, 'foto'));
+}
+
+function bioDaConta(nome) {
+  const bio = lerTexto(path.join(PASTA, 'bios', `${nome}.txt`)) ?? lerTexto(path.join(PASTA, 'bio.txt'));
+  return bio ? bio.replace(/\r\n/g, '\n') : null;
 }
 
 // Converte o JSON exportado (Cookie-Editor / EditThisCookie / Dolphin) para o formato do Puppeteer
 function lerCookies(arquivo) {
-  const bruto = JSON.parse(fs.readFileSync(path.resolve(PASTA, arquivo), 'utf8'));
+  const bruto = JSON.parse(fs.readFileSync(arquivo, 'utf8').replace(/^﻿/, ''));
   const lista = Array.isArray(bruto) ? bruto : bruto.cookies;
-  if (!Array.isArray(lista)) throw new Error(`Formato de cookies não reconhecido em ${arquivo}`);
+  if (!Array.isArray(lista)) throw new Error('Formato de cookies não reconhecido (esperava uma lista JSON)');
 
   const mapaSameSite = { no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict' };
 
-  return lista
+  const cookies = lista
     .filter((c) => c.name && c.value !== undefined)
     .map((c) => {
       const cookie = {
@@ -61,24 +75,43 @@ function lerCookies(arquivo) {
       if (ss) cookie.sameSite = ss;
       return cookie;
     });
+
+  if (!cookies.some((c) => c.name === 'sessionid')) throw new Error('O arquivo não tem o cookie "sessionid"');
+  return cookies;
 }
 
-// ---------- API local do Dolphin ----------
+// ---------- Dolphin Anty ----------
 
-async function dolphinLogin(cfg) {
-  const resp = await fetch(`http://localhost:${cfg.dolphinPorta || 3001}/v1.0/auth/login-with-token`, {
+async function dolphinLogin(token) {
+  const resp = await fetch(`http://localhost:${PORTA}/v1.0/auth/login-with-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: cfg.dolphinToken }),
-  });
-  if (!resp.ok) throw new Error(`Falha ao autenticar no Dolphin (HTTP ${resp.status}). O Dolphin está aberto? O token está certo?`);
+    body: JSON.stringify({ token }),
+  }).catch(() => null);
+  if (!resp) throw new Error('Não consegui falar com o Dolphin. Ele está aberto?');
+  if (!resp.ok) throw new Error(`O Dolphin recusou o token (HTTP ${resp.status}). Confira o token.txt`);
 }
 
-async function abrirPerfil(cfg, perfilId) {
-  const url = `http://localhost:${cfg.dolphinPorta || 3001}/v1.0/browser_profiles/${perfilId}/start?automation=1`;
+// Lista todos os perfis da conta do Dolphin (nome -> id)
+async function listarPerfis(token) {
+  const perfis = new Map();
+  for (let pagina = 1; ; pagina++) {
+    const resp = await fetch(`https://dolphin-anty-api.com/browser_profiles?limit=100&page=${pagina}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) throw new Error(`Não consegui listar os perfis do Dolphin (HTTP ${resp.status})`);
+    const dados = await resp.json();
+    for (const p of dados.data || []) perfis.set(String(p.name).trim().toLowerCase(), p.id);
+    if (!dados.data || dados.data.length < 100 || pagina >= (dados.last_page || pagina)) break;
+  }
+  return perfis;
+}
+
+async function abrirPerfil(perfilId) {
+  const url = `http://localhost:${PORTA}/v1.0/browser_profiles/${perfilId}/start?automation=1`;
   const dados = await fetch(url).then((r) => r.json());
   if (!dados.success || !dados.automation) {
-    throw new Error(`Não consegui abrir o perfil ${perfilId}: ${JSON.stringify(dados)}`);
+    throw new Error(`Não consegui abrir o perfil (ele já está aberto?): ${JSON.stringify(dados)}`);
   }
   const { port, wsEndpoint } = dados.automation;
   return puppeteer.connect({
@@ -87,8 +120,8 @@ async function abrirPerfil(cfg, perfilId) {
   });
 }
 
-async function fecharPerfil(cfg, perfilId) {
-  await fetch(`http://localhost:${cfg.dolphinPorta || 3001}/v1.0/browser_profiles/${perfilId}/stop`).catch(() => {});
+async function fecharPerfil(perfilId) {
+  await fetch(`http://localhost:${PORTA}/v1.0/browser_profiles/${perfilId}/stop`).catch(() => {});
 }
 
 // ---------- Instagram ----------
@@ -122,8 +155,27 @@ async function clicarPorTexto(page, textos, timeout = 15000) {
 async function verificarLogado(page) {
   const url = page.url();
   if (url.includes('/accounts/login') || url.includes('/challenge') || url.includes('/suspended')) {
-    throw new Error(`Não está logado (cookie inválido/expirado ou conta com checkpoint). URL: ${url}`);
+    throw new Error(`Não entrou na conta (cookie expirado ou conta com checkpoint). URL: ${url}`);
   }
+}
+
+async function trocarFoto(page, nome, arquivo) {
+  // 1ª tentativa: input de arquivo escondido na própria página de edição
+  const input = await page.$('input[type="file"][accept*="image"]');
+  if (input) {
+    await input.uploadFile(arquivo);
+  } else {
+    // 2ª tentativa: clicar em "Alterar foto" (e "Carregar foto", se abrir o menu) e responder o seletor de arquivo
+    const seletor = page.waitForFileChooser({ timeout: 20000 });
+    if (!(await clicarPorTexto(page, TXT_ALTERAR_FOTO))) throw new Error('Botão "Alterar foto" não encontrado');
+    await pausaHumana(800, 1500);
+    await clicarPorTexto(page, TXT_CARREGAR_FOTO, 3000); // só existe se a conta já tem foto
+    const chooser = await seletor;
+    await chooser.accept([arquivo]);
+  }
+
+  await esperar(6000); // tempo para o upload terminar
+  log(nome, 'Foto trocada.');
 }
 
 async function trocarBio(page, nome, bio) {
@@ -151,98 +203,87 @@ async function trocarBio(page, nome, bio) {
 
   if (!(await clicarPorTexto(page, TXT_ENVIAR))) throw new Error('Botão "Enviar" não encontrado');
   await esperar(4000);
-  log(nome, 'Bio salva.');
+  log(nome, 'Bio trocada.');
 }
 
-async function trocarFoto(page, nome, foto) {
-  const arquivo = path.resolve(PASTA, foto);
-  if (!fs.existsSync(arquivo)) throw new Error(`Foto não encontrada: ${arquivo}`);
+async function processarConta(nome, perfilId, arquivoCookies) {
+  const cookies = lerCookies(arquivoCookies);
+  const foto = fotoDaConta(nome);
+  const bio = bioDaConta(nome);
+  if (!foto && !bio) throw new Error('Não achei foto nem bio para essa conta');
 
-  // 1ª tentativa: input de arquivo escondido na própria página de edição
-  const input = await page.$('input[type="file"][accept*="image"]');
-  if (input) {
-    await input.uploadFile(arquivo);
-  } else {
-    // 2ª tentativa: clicar em "Alterar foto" (e "Carregar foto", se abrir o menu) e responder o seletor de arquivo
-    const seletor = page.waitForFileChooser({ timeout: 20000 });
-    if (!(await clicarPorTexto(page, TXT_ALTERAR_FOTO))) throw new Error('Botão "Alterar foto" não encontrado');
-    await pausaHumana(800, 1500);
-    await clicarPorTexto(page, TXT_CARREGAR_FOTO, 3000); // só existe se a conta já tem foto
-    const chooser = await seletor;
-    await chooser.accept([arquivo]);
-  }
-
-  await esperar(6000); // tempo para o upload terminar
-  log(nome, 'Foto de perfil enviada.');
-}
-
-async function processarConta(cfg, conta) {
-  const { nome, perfilId } = conta;
-  log(nome, `Abrindo perfil ${perfilId} no Dolphin...`);
-  const browser = await abrirPerfil(cfg, perfilId);
+  log(nome, 'Abrindo perfil no Dolphin...');
+  const browser = await abrirPerfil(perfilId);
 
   try {
     const page = (await browser.pages())[0] || (await browser.newPage());
 
-    log(nome, 'Setando cookies...');
+    log(nome, 'Colocando cookies...');
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
-    await page.setCookie(...lerCookies(conta.cookies));
+    await page.setCookie(...cookies);
     await pausaHumana(1500, 3000);
 
-    log(nome, 'Abrindo página de edição de perfil...');
     await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
     await verificarLogado(page);
     await pausaHumana(2000, 4000);
 
-    if (conta.foto) {
-      await trocarFoto(page, nome, conta.foto);
+    if (foto) {
+      await trocarFoto(page, nome, foto);
       await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
       await pausaHumana(2000, 4000);
     }
 
-    if (conta.bio !== undefined && conta.bio !== null) {
-      await trocarBio(page, nome, conta.bio);
-    }
-
-    log(nome, 'OK ✔');
+    if (bio) await trocarBio(page, nome, bio);
   } catch (err) {
     // Salva print da tela para ajudar a ver o que deu errado
     try {
       const pages = await browser.pages();
-      const p = pages[pages.length - 1];
       fs.mkdirSync(path.join(PASTA, 'erros'), { recursive: true });
       const print = path.join(PASTA, 'erros', `${nome}-${Date.now()}.png`);
-      await p.screenshot({ path: print });
+      await pages[pages.length - 1].screenshot({ path: print });
       log(nome, `Print do erro salvo em ${print}`);
     } catch {}
     throw err;
   } finally {
     browser.disconnect();
-    if (cfg.fecharPerfilNoFinal !== false) await fecharPerfil(cfg, perfilId);
+    await fecharPerfil(perfilId);
   }
 }
 
 async function main() {
-  const cfg = carregarConfig();
-  const filtro = process.argv[2];
-  const contas = filtro ? cfg.contas.filter((c) => c.nome === filtro) : cfg.contas;
-  if (!contas.length) {
-    console.error(filtro ? `Nenhuma conta com nome "${filtro}" no config.json` : 'Nenhuma conta no config.json');
-    process.exit(1);
+  const token = lerTexto(path.join(PASTA, 'token.txt'));
+  if (!token || token.includes('COLE')) {
+    throw new Error('Cole o token da API do Dolphin no arquivo token.txt');
   }
 
-  await dolphinLogin(cfg);
+  const arquivos = fs.readdirSync(PASTA_COOKIES).filter((f) => /\.(json|txt)$/i.test(f));
+  if (!arquivos.length) {
+    console.log('Nenhum arquivo de cookies na pasta cookies/. Nada a fazer.');
+    return;
+  }
+
+  await dolphinLogin(token);
+  // Só busca a lista de perfis se algum arquivo não for um ID numérico
+  const perfis = arquivos.every((f) => /^\d+$/.test(path.parse(f).name)) ? new Map() : await listarPerfis(token);
+  fs.mkdirSync(PASTA_FEITOS, { recursive: true });
 
   const resultado = [];
-  for (const conta of contas) {
+  for (const [i, arquivo] of arquivos.entries()) {
+    const nome = path.parse(arquivo).name;
     try {
-      await processarConta(cfg, conta);
-      resultado.push(`✔ ${conta.nome}`);
+      // O nome do arquivo é o nome do perfil no Dolphin (ou o ID do perfil, se for só número)
+      const perfilId = /^\d+$/.test(nome) ? nome : perfis.get(nome.trim().toLowerCase());
+      if (!perfilId) throw new Error(`Não existe perfil chamado "${nome}" no Dolphin`);
+
+      await processarConta(nome, perfilId, path.join(PASTA_COOKIES, arquivo));
+      fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(PASTA_FEITOS, arquivo));
+      log(nome, 'OK ✔');
+      resultado.push(`✔ ${nome}`);
     } catch (err) {
-      log(conta.nome, `ERRO: ${err.message}`);
-      resultado.push(`✘ ${conta.nome}: ${err.message}`);
+      log(nome, `ERRO: ${err.message}`);
+      resultado.push(`✘ ${nome}: ${err.message}`);
     }
-    if (conta !== contas[contas.length - 1]) await pausaHumana(5000, 10000);
+    if (i < arquivos.length - 1) await pausaHumana(5000, 10000);
   }
 
   console.log('\n===== RESUMO =====');
@@ -250,6 +291,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Erro fatal:', err.message);
-  process.exit(1);
+  console.error('\nERRO:', err.message);
+  process.exitCode = 1;
 });

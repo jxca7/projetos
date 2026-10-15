@@ -1,7 +1,11 @@
 node_modules/
-config.json
 cookies/*
 !cookies/.gitkeep
 fotos/*
 !fotos/.gitkeep
+bios/*
+!bios/.gitkeep
+foto.jpg
+foto.jpeg
+foto.png
 erros/
