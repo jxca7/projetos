@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlparse
 
 from instagrapi import Client
 from instagrapi.types import StoryLink
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 PASTA = Path(__file__).resolve().parent
 PASTA_COOKIES = PASTA / "cookies"
@@ -26,9 +26,12 @@ EXT_FOTO = (".jpg", ".jpeg", ".png", ".webp")
 INTERVALO_MIN = 60
 INTERVALO_MAX = 180
 
-# Posição da figurinha de link na tela (0 a 1). y=0.8 deixa ela mais para baixo.
+# Posição do centro da figurinha de link na tela (0 a 1). y=0.8 deixa ela mais para baixo.
 LINK_X = 0.5
 LINK_Y = 0.8
+
+# Tamanho do story
+LARGURA, ALTURA = 1080, 1920
 
 
 def log(conta, msg):
@@ -53,12 +56,18 @@ def achar_imagem():
 
 
 def ler_link():
-    link = ler_texto(PASTA / "link.txt")
-    if not link or "seulink.com" in link:
-        return None
+    """link.txt: 1ª linha = link; 2ª linha (opcional) = texto que aparece na figurinha."""
+    texto = ler_texto(PASTA / "link.txt")
+    if not texto:
+        return None, None
+    linhas = [l.strip() for l in texto.splitlines() if l.strip()]
+    link = linhas[0]
+    if "seulink.com" in link:
+        return None, None
     if not link.startswith(("http://", "https://")):
         link = "https://" + link
-    return link
+    rotulo = linhas[1] if len(linhas) > 1 else urlparse(link).hostname.removeprefix("www.")
+    return link, rotulo.upper()
 
 
 def ler_sessionid(arquivo):
@@ -107,15 +116,71 @@ def ler_proxy():
     return f"http://{linha}"
 
 
-def preparar_imagem(imagem):
-    """Converte para JPG (o Instagram só aceita JPG no story)."""
-    destino = Path(tempfile.gettempdir()) / "story_para_postar.jpg"
+def carregar_fonte(tamanho):
+    for nome in ("segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"):
+        try:
+            return ImageFont.truetype(nome, tamanho)
+        except OSError:
+            pass
+    return ImageFont.load_default(tamanho)
+
+
+def desenhar_icone_link(draw, cx, cy, tam, cor):
+    """Dois elos de corrente inclinados, parecido com o ícone do Instagram."""
+    elo = Image.new("RGBA", (tam * 2, tam * 2), (0, 0, 0, 0))
+    d = ImageDraw.Draw(elo)
+    esp = max(3, tam // 7)
+    w, h = int(tam * 0.95), int(tam * 0.5)
+    for dx in (-tam * 0.28, tam * 0.28):
+        x0 = tam + dx - w / 2
+        d.rounded_rectangle([x0, tam - h / 2, x0 + w, tam + h / 2], radius=h / 2, outline=cor, width=esp)
+    elo = elo.rotate(45, resample=Image.BICUBIC)
+    return elo, (int(cx - tam), int(cy - tam))
+
+
+def montar_story(imagem, rotulo):
+    """Monta a imagem 1080x1920 do story e, se tiver link, desenha a figurinha.
+
+    Devolve o caminho do JPG e a área da figurinha (x, y, largura, altura em 0..1).
+    """
     with Image.open(imagem) as img:
-        img.convert("RGB").save(destino, "JPEG", quality=95)
-    return destino
+        img = img.convert("RGB")
+
+    # Fundo: a própria imagem ampliada e desfocada (igual o Instagram faz); por cima, a imagem inteira
+    escala_fundo = max(LARGURA / img.width, ALTURA / img.height)
+    fundo = img.resize((int(img.width * escala_fundo) + 1, int(img.height * escala_fundo) + 1))
+    fundo = fundo.crop(((fundo.width - LARGURA) // 2, (fundo.height - ALTURA) // 2,
+                        (fundo.width - LARGURA) // 2 + LARGURA, (fundo.height - ALTURA) // 2 + ALTURA))
+    canvas = fundo.filter(ImageFilter.GaussianBlur(40))
+    escala = min(LARGURA / img.width, ALTURA / img.height)
+    frente = img.resize((int(img.width * escala), int(img.height * escala)), Image.LANCZOS)
+    canvas.paste(frente, ((LARGURA - frente.width) // 2, (ALTURA - frente.height) // 2))
+
+    area = None
+    if rotulo:
+        fonte = carregar_fonte(44)
+        draw = ImageDraw.Draw(canvas)
+        caixa = draw.textbbox((0, 0), rotulo, font=fonte)
+        texto_w, texto_h = caixa[2] - caixa[0], caixa[3] - caixa[1]
+        icone, alt, pad = 44, 104, 34
+        larg = min(pad + icone + 16 + texto_w + pad, LARGURA - 80)
+        cx, cy = LARGURA * LINK_X, ALTURA * LINK_Y
+        x0, y0 = int(cx - larg / 2), int(cy - alt / 2)
+
+        draw = ImageDraw.Draw(canvas)
+        draw.rounded_rectangle([x0, y0, x0 + larg, y0 + alt], radius=24, fill="white")
+        azul = (0, 149, 246)
+        elo, pos = desenhar_icone_link(draw, x0 + pad + icone / 2, cy, icone, azul)
+        canvas.paste(elo, pos, elo)
+        draw.text((x0 + pad + icone + 16, cy), rotulo, font=fonte, fill=azul, anchor="lm")
+        area = (LINK_X, LINK_Y, larg / LARGURA, alt / ALTURA)
+
+    destino = Path(tempfile.gettempdir()) / "story_para_postar.jpg"
+    canvas.save(destino, "JPEG", quality=95)
+    return destino, area
 
 
-def postar(nome, arquivo_cookies, imagem, link, proxy):
+def postar(nome, arquivo_cookies, imagem, link, area, proxy):
     sessionid = ler_sessionid(arquivo_cookies)
 
     cl = Client()
@@ -134,9 +199,12 @@ def postar(nome, arquivo_cookies, imagem, link, proxy):
     cl.dump_settings(arquivo_sessao)
     log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
-    links = [StoryLink(webUri=link, x=LINK_X, y=LINK_Y)] if link else []
+    links = []
+    if link:
+        x, y, largura, altura = area
+        links = [StoryLink(webUri=link, x=x, y=y, width=largura, height=altura)]
     log(nome, "Postando story..." + (f" (link: {link})" if link else ""))
-    story = cl.photo_upload_to_story(imagem, links=links, resize_mode="fit")
+    story = cl.photo_upload_to_story(imagem, links=links, resize_mode="fill")
 
     if link and not story.links:
         log(nome, "AVISO: o story foi postado, mas o Instagram não devolveu a figurinha de link. Confira no app.")
@@ -154,7 +222,7 @@ def main():
         print("Coloque a imagem do story (story.jpg) nesta pasta.")
         sys.exit(1)
 
-    link = ler_link()
+    link, rotulo = ler_link()
     if not link:
         print("AVISO: link.txt vazio, o story vai sem link.")
 
@@ -162,14 +230,14 @@ def main():
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
 
-    imagem_jpg = preparar_imagem(imagem)
+    imagem_jpg, area = montar_story(imagem, rotulo if link else None)
     PASTA_FEITOS.mkdir(exist_ok=True)
 
     resultado = []
     for i, arquivo in enumerate(arquivos):
         nome = arquivo.stem
         try:
-            postar(nome, arquivo, imagem_jpg, link, proxy)
+            postar(nome, arquivo, imagem_jpg, link, area, proxy)
             shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
