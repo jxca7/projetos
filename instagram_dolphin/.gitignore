@@ -1,0 +1,7 @@
+node_modules/
+config.json
+cookies/*
+!cookies/.gitkeep
+fotos/*
+!fotos/.gitkeep
+erros/

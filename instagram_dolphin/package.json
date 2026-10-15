@@ -1,0 +1,13 @@
+{
+  "name": "instagram-dolphin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seta cookies do Instagram em perfis do Dolphin Anty e configura bio e foto de perfil",
+  "main": "instagram-setup.js",
+  "scripts": {
+    "start": "node instagram-setup.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
