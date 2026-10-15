@@ -1,2 +1,1 @@
-yt-dlp>=2025.1.1
-requests
+requests>=2.28

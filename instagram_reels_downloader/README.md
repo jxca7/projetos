@@ -1,61 +1,43 @@
 # Downloader de Reels do Instagram (melhor qualidade)
 
-Baixa Reels pegando a **melhor faixa de vídeo + melhor faixa de áudio** que o
-Instagram oferece e junta num `.mp4` **sem recodificar** (sem perda nenhuma).
+`reels.py` baixa os **N reels mais recentes** de uma conta (ou links avulsos) na
+**melhor qualidade que o Instagram tem**: pega a faixa de vídeo de maior
+resolução/bitrate e a melhor faixa de áudio e junta com o ffmpeg **sem
+recodificar** (zero perda). Também salva a legenda de cada reel em `.txt`.
 
-## Instalação
-
-1. Python 3.9+
-2. `pip install -U -r requirements.txt`
-3. ffmpeg instalado e no PATH
-   - Windows: `winget install ffmpeg`
-   - macOS: `brew install ffmpeg`
-   - Linux: `sudo apt install ffmpeg`
-
-## Uso
+## Instalar na VPS (Ubuntu/Debian)
 
 ```bash
-# um ou vários reels
-python3 baixar_reels.py https://www.instagram.com/reel/XXXXXXXXX/
-
-# vários de um arquivo (um link por linha)
-python3 baixar_reels.py -a links.txt
-
-# escolher pasta, salvar legenda e capa
-python3 baixar_reels.py URL -o ~/Videos/reels --legenda --capa
-
-# reel privado / Instagram pedindo login: usa os cookies do navegador logado
-python3 baixar_reels.py URL --cookies-from-browser chrome
-
-# ver todas as qualidades disponíveis sem baixar
-python3 baixar_reels.py URL --listar
+git clone --depth 1 -b claude/instagram-reels-downloader-bkjo1e https://github.com/jxca7/projetos.git
+cd projetos/instagram_reels_downloader
+bash instalar.sh
 ```
 
-Os arquivos saem como `usuario_IDDOREEL.mp4` na pasta `reels/`.
-
-## Baixar todos os Reels de uma conta
+Depois envie o `cookies.txt` (de uma conta logada) para essa pasta. Do seu PC:
 
 ```bash
-python3 baixar_conta.py nome_da_conta --cookies cookies.txt
-python3 baixar_conta.py nome_da_conta --cookies cookies.txt --limite 20   # só os 20 mais recentes
+scp cookies.txt root@IP_DA_VPS:~/projetos/instagram_reels_downloader/
 ```
 
-O Instagram só mostra a lista de reels de um perfil para quem está logado, por
-isso precisa do `cookies.txt` (exporte com a extensão "Get cookies.txt LOCALLY"
-estando logado no instagram.com). Os vídeos vão para `reels_<conta>/` com o nome
-`DATA_ID.mp4`. Rodando de novo, só baixa os reels novos.
+## Usar
 
-## Pelo navegador (sem instalar nada)
+```bash
+cd ~/projetos/instagram_reels_downloader
+.venv/bin/python reels.py                         # pergunta a conta e a quantidade
+.venv/bin/python reels.py nome_da_conta -n 10     # 10 mais recentes
+.venv/bin/python reels.py nome_da_conta -n 0      # todos
+.venv/bin/python reels.py https://www.instagram.com/reel/XXXX/   # links avulsos
+```
 
-Se o Instagram bloquear o Colab/servidor (erro 429), use `baixar_reels_navegador.js`:
-abra `instagram.com/NOME_DA_CONTA/reels/` logado no Chrome, F12 → Console, cole o
-código e aperte Enter. Ele rola a página listando os reels e baixa os reels para a pasta Downloads, escolhendo a
-versão de maior resolução com vídeo+áudio.
+Opções: `-o PASTA`, `--cookies ARQUIVO`, `--proxy http://user:senha@host:porta`,
+`--pausa SEGUNDOS` (padrão 4), `--sem-legenda`.
 
-## Dicas
+Os vídeos vão para `reels_<conta>/` como `conta_DATA_CODIGO.mp4`. Rodar de novo
+só baixa o que falta (`baixados.txt`).
 
-- Se começar a falhar, atualize o yt-dlp: `pip install -U yt-dlp`
-  (o Instagram muda com frequência).
-- A qualidade máxima é a que o Instagram guarda (normalmente 1080x1920).
-  Nada acima disso existe para baixar.
-- Baixe apenas conteúdo seu ou que você tem permissão para usar.
+## Se o Instagram bloquear a VPS
+
+IPs de datacenter costumam receber erro 429 / "login não aceito". Nesse caso use
+um **proxy residencial** com `--proxy`, ou rode no seu PC, ou use
+`baixar_reels_navegador.js` no console do Chrome (abra `instagram.com/CONTA/reels/`,
+F12 → Console, cole e Enter).

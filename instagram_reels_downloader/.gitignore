@@ -1,0 +1,6 @@
+__pycache__/
+cookies.txt
+*cookies*.txt
+reels/
+reels_*/
+.venv/

@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""
+Downloader de Reels do Instagram na MELHOR qualidade possivel.
+
+Baixa os N reels mais recentes de uma conta (ou links avulsos). Para cada reel
+pega a faixa de video de maior resolucao/bitrate e a melhor faixa de audio
+(o Instagram entrega separadas, em DASH) e junta com o ffmpeg SEM recodificar.
+
+Uso:
+    python3 reels.py                          # modo interativo (pergunta tudo)
+    python3 reels.py nome_da_conta -n 10      # os 10 reels mais recentes
+    python3 reels.py nome_da_conta -n 0       # todos
+    python3 reels.py https://www.instagram.com/reel/XXXX/ [outros links...]
+
+Precisa de um cookies.txt (formato Netscape) de uma conta logada no Instagram.
+Por padrao procura "cookies.txt" na pasta atual e na pasta do script.
+"""
+import argparse
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from http.cookiejar import MozillaCookieJar
+from pathlib import Path
+
+try:
+    import requests
+except ImportError:
+    sys.exit("Falta o requests. Instale com:  pip install -r requirements.txt")
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
+IG = "https://www.instagram.com"
+ALFABETO = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+class ErroInstagram(Exception):
+    pass
+
+
+def log(msg="", erro=False):
+    print(msg, file=sys.stderr if erro else sys.stdout, flush=True)
+
+
+# --------------------------------------------------------------------------- sessao
+
+def achar_cookies(caminho):
+    if caminho:
+        return Path(caminho)
+    for pasta in (Path.cwd(), Path(__file__).resolve().parent):
+        for nome in ("cookies.txt", "www.instagram.com_cookies.txt"):
+            if (pasta / nome).exists():
+                return pasta / nome
+    sys.exit("Nao achei o cookies.txt. Coloque o arquivo na pasta ou use --cookies CAMINHO.")
+
+
+def criar_sessao(caminho_cookies, proxy=None):
+    jar = MozillaCookieJar(str(caminho_cookies))
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except Exception as e:
+        sys.exit(f"Nao consegui ler {caminho_cookies}: {e}\n"
+                 "Ele precisa estar no formato Netscape (exporte com 'Get cookies.txt LOCALLY').")
+    s = requests.Session()
+    for c in jar:
+        if "instagram.com" in c.domain:
+            s.cookies.set(c.name, c.value, domain=".instagram.com", path="/")
+    if "sessionid" not in s.cookies.keys():
+        sys.exit("O cookies.txt nao tem o 'sessionid' do Instagram. Exporte de novo, "
+                 "estando NA ABA do instagram.com e logado.")
+    s.headers.update({
+        "User-Agent": UA,
+        "Accept": "*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "X-IG-App-ID": "936619743392459",
+        "X-ASBD-ID": "129477",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRFToken": s.cookies.get("csrftoken", ""),
+        "Origin": IG,
+        "Referer": IG + "/",
+    })
+    if proxy:
+        s.proxies = {"http": proxy, "https": proxy}
+    return s
+
+
+def pedir_json(s, metodo, url, tentativas=4, **kw):
+    """Faz a requisicao; em caso de limite (429) espera e tenta de novo."""
+    espera = 60
+    for tentativa in range(1, tentativas + 1):
+        r = s.request(metodo, url, allow_redirects=False, timeout=30, **kw)
+        if r.status_code == 429 or (r.status_code == 401 and "wait" in r.text.lower()):
+            if tentativa == tentativas:
+                raise ErroInstagram("O Instagram esta limitando as requisicoes (429). "
+                                    "Espere 1 hora sem rodar e tente de novo.")
+            log(f"   Instagram pediu para ir mais devagar. Esperando {espera}s...", erro=True)
+            time.sleep(espera)
+            espera *= 2
+            continue
+        if r.status_code in (301, 302):
+            if "challenge" in r.headers.get("Location", ""):
+                raise ErroInstagram("O Instagram pediu verificacao de seguranca. Abra o "
+                                    "instagram.com no navegador, confirme que foi voce, "
+                                    "exporte os cookies de novo e tente outra vez.")
+            raise ErroInstagram("O Instagram nao aceitou o login dos cookies. "
+                                "Exporte o cookies.txt de novo.")
+        try:
+            dados = r.json()
+        except ValueError:
+            raise ErroInstagram(f"Resposta inesperada do Instagram (HTTP {r.status_code}). "
+                                "Os cookies podem ter expirado, ou o IP esta bloqueado.")
+        if dados.get("require_login") or dados.get("message") in ("login_required", "checkpoint_required"):
+            raise ErroInstagram("O Instagram nao aceitou o login dos cookies "
+                                f"({dados.get('message')}). Exporte o cookies.txt de novo.")
+        if r.status_code >= 400:
+            raise ErroInstagram(f"Erro HTTP {r.status_code}: {dados.get('message', dados)}")
+        return dados
+
+
+# --------------------------------------------------------------------------- listagem
+
+def id_da_conta(s, conta):
+    # 1) busca (rota menos limitada)
+    try:
+        d = pedir_json(s, "GET", f"{IG}/web/search/topsearch/", tentativas=1,
+                       params={"context": "blended", "query": conta})
+        for item in d.get("users", []):
+            u = item.get("user") or {}
+            if (u.get("username") or "").lower() == conta:
+                return str(u.get("pk") or u.get("pk_id") or u.get("id"))
+    except (ErroInstagram, requests.RequestException):
+        pass
+    # 2) web_profile_info
+    d = pedir_json(s, "GET", f"{IG}/api/v1/users/web_profile_info/", params={"username": conta})
+    user = (d.get("data") or {}).get("user")
+    if not user:
+        raise ErroInstagram(f"A conta @{conta} nao foi encontrada.")
+    if user.get("is_private") and not user.get("followed_by_viewer"):
+        raise ErroInstagram(f"A conta @{conta} e privada e voce nao a segue.")
+    return str(user["id"])
+
+
+def listar_reels(s, conta, quantidade):
+    """Devolve ate `quantidade` reels (dicts de midia), do mais novo ao mais antigo."""
+    user_id = id_da_conta(s, conta)
+    reels, max_id = [], ""
+    while not quantidade or len(reels) < quantidade:
+        dados = {"target_user_id": user_id, "page_size": "12", "include_feed_video": "true"}
+        if max_id:
+            dados["max_id"] = max_id
+        d = pedir_json(s, "POST", f"{IG}/api/v1/clips/user/", data=dados,
+                       headers={"Referer": f"{IG}/{conta}/reels/"})
+        for item in d.get("items", []):
+            if item.get("media"):
+                reels.append(item["media"])
+        log(f"   {len(reels)} reels listados...")
+        pag = d.get("paging_info") or {}
+        max_id = pag.get("max_id")
+        if not pag.get("more_available") or not max_id:
+            break
+        time.sleep(random.uniform(2, 4))
+    return reels[:quantidade] if quantidade else reels
+
+
+def codigo_para_pk(codigo):
+    pk = 0
+    for c in codigo[:11]:
+        pk = pk * 64 + ALFABETO.index(c)
+    return str(pk)
+
+
+def info_do_reel(s, codigo):
+    d = pedir_json(s, "GET", f"{IG}/api/v1/media/{codigo_para_pk(codigo)}/info/")
+    itens = d.get("items") or []
+    if not itens:
+        raise ErroInstagram("reel nao encontrado")
+    return itens[0]
+
+
+# --------------------------------------------------------------------------- qualidade
+
+def melhores_faixas_dash(manifesto):
+    """Do manifesto DASH, devolve (melhor_video, melhor_audio); cada um = dict ou None."""
+    if not manifesto:
+        return None, None
+    try:
+        raiz = ET.fromstring(manifesto)
+    except ET.ParseError:
+        return None, None
+    videos, audios = [], []
+    for aset in raiz.iter():
+        if not aset.tag.endswith("AdaptationSet"):
+            continue
+        tipo_set = (aset.get("contentType") or aset.get("mimeType") or "").lower()
+        for rep in aset:
+            if not rep.tag.endswith("Representation"):
+                continue
+            base = next((e.text for e in rep if e.tag.endswith("BaseURL") and e.text), None)
+            if not base:
+                continue
+            tipo = (rep.get("mimeType") or tipo_set).lower()
+            faixa = {
+                "url": base.strip(),
+                "largura": int(rep.get("width") or 0),
+                "altura": int(rep.get("height") or 0),
+                "bitrate": int(rep.get("bandwidth") or 0),
+            }
+            (audios if "audio" in tipo else videos).append(faixa)
+    melhor_v = max(videos, key=lambda f: (f["altura"] * f["largura"], f["bitrate"]), default=None)
+    melhor_a = max(audios, key=lambda f: f["bitrate"], default=None)
+    return melhor_v, melhor_a
+
+
+def melhor_progressivo(midia):
+    versoes = midia.get("video_versions") or []
+    return max(versoes, key=lambda v: (v.get("width", 0) * v.get("height", 0)), default=None)
+
+
+# --------------------------------------------------------------------------- download
+
+def baixar_arquivo(cdn, url, destino):
+    with cdn.get(url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(destino, "wb") as f:
+            for bloco in r.iter_content(1 << 20):
+                f.write(bloco)
+
+
+def juntar(video, audio, saida):
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video)]
+    if audio:
+        cmd += ["-i", str(audio), "-map", "0:v:0", "-map", "1:a:0"]
+    cmd += ["-c", "copy", "-movflags", "+faststart", str(saida)]
+    subprocess.run(cmd, check=True)
+
+
+def baixar_reel(s, cdn, midia, pasta):
+    """Baixa um reel na melhor qualidade. Devolve (caminho, descricao_da_qualidade)."""
+    codigo = midia["code"]
+    if not midia.get("video_dash_manifest") and not midia.get("video_versions"):
+        midia = info_do_reel(s, codigo)
+    if midia.get("media_type") != 2 and not midia.get("video_versions"):
+        raise ErroInstagram("este post nao e video")
+
+    dono = ((midia.get("user") or {}).get("username")) or "instagram"
+    data = datetime.fromtimestamp(midia.get("taken_at") or 0, timezone.utc).strftime("%Y%m%d")
+    saida = pasta / f"{dono}_{data}_{codigo}.mp4"
+
+    v, a = melhores_faixas_dash(midia.get("video_dash_manifest"))
+    prog = melhor_progressivo(midia)
+    usar_dash = v and (not prog or v["altura"] * v["largura"] >= prog.get("height", 0) * prog.get("width", 0))
+
+    with tempfile.TemporaryDirectory(dir=pasta) as tmp:
+        tmp = Path(tmp)
+        if usar_dash:
+            baixar_arquivo(cdn, v["url"], tmp / "v.mp4")
+            if a:
+                baixar_arquivo(cdn, a["url"], tmp / "a.mp4")
+            juntar(tmp / "v.mp4", tmp / "a.mp4" if a else None, tmp / "final.mp4")
+            qualidade = f"{v['largura']}x{v['altura']} {v['bitrate'] // 1000} kbps"
+            if a:
+                qualidade += f" + audio {a['bitrate'] // 1000} kbps"
+        elif prog:
+            baixar_arquivo(cdn, prog["url"], tmp / "final.mp4")
+            qualidade = f"{prog.get('width')}x{prog.get('height')} (arquivo unico)"
+        else:
+            raise ErroInstagram("nenhuma versao de video encontrada")
+        shutil.move(str(tmp / "final.mp4"), saida)
+
+    if midia.get("caption") and (midia["caption"].get("text")):
+        saida.with_suffix(".txt").write_text(midia["caption"]["text"], encoding="utf-8")
+    return saida, qualidade
+
+
+# --------------------------------------------------------------------------- main
+
+def ler_registro(arquivo):
+    return set(arquivo.read_text().split()) if arquivo.exists() else set()
+
+
+def perguntar(texto, padrao=""):
+    try:
+        resp = input(texto).strip()
+    except EOFError:
+        resp = ""
+    return resp or padrao
+
+
+def main():
+    p = argparse.ArgumentParser(description="Baixa Reels do Instagram na melhor qualidade.")
+    p.add_argument("alvo", nargs="*", help="nome da conta, link do perfil, ou links de reels")
+    p.add_argument("-n", "--quantidade", type=int,
+                   help="quantos reels baixar (os mais recentes). 0 = todos")
+    p.add_argument("-o", "--saida", help="pasta de destino (padrao: ./reels_<conta>)")
+    p.add_argument("--cookies", help="arquivo cookies.txt (padrao: ./cookies.txt)")
+    p.add_argument("--proxy", help="proxy, ex: http://usuario:senha@host:porta")
+    p.add_argument("--pausa", type=float, default=4, help="segundos entre downloads (padrao: 4)")
+    p.add_argument("--sem-legenda", action="store_true", help="nao salvar a legenda em .txt")
+    args = p.parse_args()
+
+    if not shutil.which("ffmpeg"):
+        sys.exit("O ffmpeg nao esta instalado. No Ubuntu/Debian:  sudo apt install -y ffmpeg")
+
+    alvos = args.alvo
+    if not alvos:
+        alvos = [perguntar("Conta do Instagram (sem @) ou link do reel: ")]
+        if not alvos[0]:
+            sys.exit("Nada informado.")
+
+    links = [a for a in alvos if re.search(r"/(reel|reels|p|tv)/[A-Za-z0-9_-]+", a)]
+    s = criar_sessao(achar_cookies(args.cookies), args.proxy)
+    cdn = requests.Session()
+    cdn.headers["User-Agent"] = UA
+    if args.proxy:
+        cdn.proxies = s.proxies
+
+    try:
+        if links:
+            codigos = [re.search(r"/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", l).group(1) for l in links]
+            pasta = Path(args.saida or "reels").expanduser()
+            reels = [{"code": c} for c in codigos]
+        else:
+            conta = alvos[0].strip().rstrip("/").split("/")[-1].lstrip("@").lower()
+            qtd = args.quantidade
+            if qtd is None:
+                qtd = int(perguntar("Quantos reels baixar? (Enter = todos): ", "0") or 0)
+            pasta = Path(args.saida or f"reels_{conta}").expanduser()
+            log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
+            reels = listar_reels(s, conta, qtd)
+            log(f"{len(reels)} reels encontrados.")
+    except (ErroInstagram, requests.RequestException) as e:
+        sys.exit(f"ERRO: {e}")
+
+    pasta.mkdir(parents=True, exist_ok=True)
+    registro = pasta / "baixados.txt"
+    ja = ler_registro(registro)
+    ok = pulados = 0
+    falhas = []
+
+    for i, midia in enumerate(reels, 1):
+        codigo = midia["code"]
+        prefixo = f"[{i}/{len(reels)}] {codigo}"
+        if codigo in ja:
+            log(f"{prefixo}  ja baixado, pulando")
+            pulados += 1
+            continue
+        try:
+            arquivo, qualidade = baixar_reel(s, cdn, midia, pasta)
+            if args.sem_legenda:
+                arquivo.with_suffix(".txt").unlink(missing_ok=True)
+            with open(registro, "a") as f:
+                f.write(codigo + "\n")
+            log(f"{prefixo}  OK  {qualidade}  ->  {arquivo.name}")
+            ok += 1
+        except (ErroInstagram, requests.RequestException, subprocess.CalledProcessError, OSError) as e:
+            log(f"{prefixo}  FALHOU: {e}", erro=True)
+            falhas.append(codigo)
+            if isinstance(e, ErroInstagram) and ("login" in str(e) or "429" in str(e)):
+                log("Parando: o Instagram bloqueou. Rode de novo mais tarde; "
+                    "ele continua de onde parou.", erro=True)
+                break
+        if i < len(reels):
+            time.sleep(random.uniform(args.pausa, args.pausa * 1.5))
+
+    log(f"\nPronto: {ok} baixados, {pulados} ja existiam, {len(falhas)} falharam.")
+    log(f"Pasta: {pasta.resolve()}")
+    if falhas:
+        log("Rode o mesmo comando de novo para tentar so os que faltaram.", erro=True)
+    return 1 if falhas else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
