@@ -55,6 +55,14 @@ def achar_imagem():
     return None
 
 
+def ler_destaque():
+    """destaque.txt: nome do destaque onde o story vai entrar. Vazio = não destaca."""
+    nome = ler_texto(PASTA / "destaque.txt")
+    if not nome or nome.lower().startswith("nome do destaque"):
+        return None
+    return nome.splitlines()[0].strip()
+
+
 def ler_link():
     """link.txt: 1ª linha = link; 2ª linha (opcional) = texto que aparece na figurinha."""
     texto = ler_texto(PASTA / "link.txt")
@@ -180,7 +188,7 @@ def montar_story(imagem, rotulo):
     return destino, area
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy):
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque):
     sessionid = ler_sessionid(arquivo_cookies)
 
     cl = Client()
@@ -210,6 +218,21 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy):
         log(nome, "AVISO: o story foi postado, mas o Instagram não devolveu a figurinha de link. Confira no app.")
     log(nome, f"Story postado (id {story.pk}).")
 
+    # Destacar: coloca o story num Destaque do perfil
+    if destaque:
+        try:
+            time.sleep(3)  # dá um tempo para o story ficar disponível
+            sid = str(story.pk)
+            existente = next((h for h in cl.user_highlights(cl.user_id) if h.title.strip().lower() == destaque.lower()), None)
+            if existente:
+                cl.highlight_add_stories(existente.pk, [cl.media_id(sid)])
+                log(nome, f'Story adicionado ao destaque "{destaque}".')
+            else:
+                cl.highlight_create(destaque, [sid])
+                log(nome, f'Destaque "{destaque}" criado com o story.')
+        except Exception as e:
+            log(nome, f"AVISO: não consegui destacar ({e}). O story foi postado mesmo assim.")
+
 
 def main():
     arquivos = sorted(f for f in PASTA_COOKIES.iterdir() if f.is_file() and f.suffix.lower() in (".json", ".txt"))
@@ -226,6 +249,10 @@ def main():
     if not link:
         print("AVISO: link.txt vazio, o story vai sem link.")
 
+    destaque = ler_destaque()
+    if destaque:
+        print(f'Vai destacar em: "{destaque}"')
+
     proxy = ler_proxy()
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
@@ -237,7 +264,7 @@ def main():
     for i, arquivo in enumerate(arquivos):
         nome = arquivo.stem
         try:
-            postar(nome, arquivo, imagem_jpg, link, area, proxy)
+            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque)
             shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
