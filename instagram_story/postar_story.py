@@ -319,6 +319,13 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
             log(nome, "Entrando com usuário e senha...")
         cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
 
+    # "Esquenta" a sessão: pega o feed para a biblioteca guardar os tokens das ações privadas
+    # (sem isso, criar destaque costuma dar login_required)
+    try:
+        cl.get_timeline_feed()
+    except Exception:
+        pass
+
     cl.dump_settings(arquivo_sessao)
     log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
