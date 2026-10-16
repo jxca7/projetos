@@ -23,7 +23,7 @@ const PASSOS = [
     textos: ['Mudar', 'Mudar para conta profissional', 'Switch', 'Change', 'Update', 'Switch now', 'Switch account',
       'Switch to professional account', 'Switch to Professional Account', 'Switch to professional', 'Change account type'],
   },
-  { nome: 'Criador de conteúdo', textos: ['Criador de conteúdo', 'Criador', 'Creator', 'Content creator', 'Content Creator'] },
+  { nome: 'Criador de conteúdo', textos: ['Criador de conteúdo', 'Criador', 'Creator', 'Content creator', 'Content Creator'], selecao: true },
   { nome: 'Avançar', textos: ['Avançar', 'Próximo', 'Next'] },
   { nome: 'Avançar (2ª vez)', textos: ['Avançar', 'Próximo', 'Next'], opcional: true },
   { nome: 'Blog pessoal', textos: ['Blog pessoal', 'Personal blog', 'Personal Blog'], categoria: true },
@@ -37,7 +37,9 @@ const PASSOS = [
 // ---------- utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-const pausaHumana = (min = 800, max = 2000) => esperar(min + Math.random() * (max - min));
+// VELOCIDADE: multiplica todas as pausas. 1 = devagar (mais "humano"), 0.3 = rápido.
+const VELOCIDADE = 0.3;
+const pausaHumana = (min = 800, max = 2000) => esperar((min + Math.random() * (max - min)) * VELOCIDADE);
 
 function log(conta, msg) {
   const hora = new Date().toLocaleTimeString('pt-BR');
@@ -168,7 +170,7 @@ async function clicarTexto(page, textos, timeout = 15000) {
       await el.click().catch(() => {});
       return true;
     }
-    await esperar(500);
+    await esperar(250);
   }
   return false;
 }
@@ -198,7 +200,7 @@ function lerLoginSite() {
 
 // Fecha o pop-up que o site mostra depois do login (propaganda da extensão): clica em "Agora não"
 async function fecharPopup(page, nome) {
-  if (await clicarTexto(page, TXT_AGORA_NAO, 6000)) {
+  if (await clicarTexto(page, TXT_AGORA_NAO, 4000)) {
     log(nome, 'Fechei o pop-up do site ("Agora não").');
     await pausaHumana(800, 1500);
   }
@@ -251,7 +253,7 @@ async function clicarPrimeiroConectar(page, timeout) {
       await el.click().catch(() => {});
       return true;
     }
-    await esperar(500);
+    await esperar(250);
   }
   return false;
 }
@@ -282,7 +284,7 @@ async function clicarSegundoConectar(page, timeout) {
       await el.click().catch(() => {});
       return true;
     }
-    await esperar(500);
+    await esperar(250);
   }
   return false;
 }
@@ -294,13 +296,13 @@ async function esperouIrParaInstagram(page, site, timeout) {
   while (Date.now() < fim) {
     if (!page.url().startsWith(origemSite)) return true;
     if (await page.$('input[name="username"]').catch(() => null)) return true;
-    await esperar(500);
+    await esperar(250);
   }
   return false;
 }
 
 async function clicarConectar(page, site, nome) {
-  await page.goto(site, { waitUntil: 'networkidle2', timeout: 60000 });
+  await page.goto(site, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await entrarNoSite(page, site, nome);
   await fecharPopup(page, nome); // o pop-up da extensão aparece toda vez que abre o site
 
@@ -356,10 +358,10 @@ async function fazerLogin(page, conta, nome) {
 
   log(nome, 'Preenchendo login e senha...');
   await campoUsuario.click({ clickCount: 3 });
-  await campoUsuario.type(conta.usuario, { delay: 50 + Math.random() * 60 });
+  await campoUsuario.type(conta.usuario, { delay: 15 + Math.random() * 20 });
   await pausaHumana(500, 1200);
   await campoSenha.click({ clickCount: 3 });
-  await campoSenha.type(conta.senha, { delay: 50 + Math.random() * 60 });
+  await campoSenha.type(conta.senha, { delay: 15 + Math.random() * 20 });
   await pausaHumana(600, 1300);
 
   const botao = await page.$('button[type="submit"]');
@@ -369,7 +371,7 @@ async function fazerLogin(page, conta, nome) {
   // Espera sair da tela de login
   const fim = Date.now() + 30000;
   while (Date.now() < fim) {
-    await esperar(1000);
+    await esperar(300);
     const aindaNoLogin = await page.$('input[name="password"], input[name="pass"]').catch(() => null);
     if (!aindaNoLogin) break;
     const erro = await page
@@ -383,57 +385,100 @@ async function fazerLogin(page, conta, nome) {
     if (erro) throw new Error(`Login recusado: "${erro.trim()}"`);
   }
 
-  // Pediu 2FA / código de verificação: pula a conta
-  await pausaHumana(1500, 2500);
-  if (await pediu2FA(page)) {
-    const err = new Error('Pediu verificação em duas etapas (2FA), pulei a conta');
-    err.pediu2FA = true;
-    throw err;
+  // Espera a próxima tela: 2FA (pula a conta), "Agora não" (clica) ou a tela do "Mudar"
+  const ate = Date.now() + 20000;
+  while (Date.now() < ate) {
+    if (await pediu2FA(page)) {
+      const err = new Error('Pediu verificação em duas etapas (2FA), pulei a conta');
+      err.pediu2FA = true;
+      throw err;
+    }
+    const agoraNao = await acharTexto(page, TXT_AGORA_NAO).catch(() => null);
+    if (agoraNao) {
+      await agoraNao.click().catch(() => {});
+      log(nome, 'Cliquei em "Agora não".');
+      await esperar(500);
+      continue;
+    }
+    if (await existeTexto(page, PASSOS[0].textos)) break;
+    await esperar(300);
   }
-
-  // "Salvar informações de login?" -> Agora não
-  if (await clicarTexto(page, TXT_AGORA_NAO, 8000)) log(nome, 'Cliquei em "Agora não".');
   log(nome, 'Login feito.');
 }
 
+// Espera o elemento clicado sumir (a tela mudou), para não clicar duas vezes no mesmo botão
+async function esperarSumir(el, timeout = 6000) {
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    const sumiu = await el
+      .evaluate((e) => !e.isConnected || e.getBoundingClientRect().width === 0)
+      .catch(() => true);
+    if (sumiu) return;
+    await esperar(150);
+  }
+}
+
 async function passarTelas(page, nome) {
-  for (let i = 0; i < PASSOS.length; i++) {
+  let i = 0;
+  while (i < PASSOS.length) {
     const passo = PASSOS[i];
-    let clicou = await clicarTexto(page, passo.textos, passo.categoria ? 6000 : 20000);
+    const inicio = Date.now();
+    let alvo = -1;
+    let el = null;
+    let buscou = false;
 
-    // Lista de categorias com busca: digita para "Blog pessoal" aparecer
-    if (!clicou && passo.categoria) {
-      const busca = await page.$('input[type="search"], input[placeholder*="esquis"], input[placeholder*="earch"], input[placeholder*="usca"]');
-      if (busca) {
-        await busca.click({ clickCount: 3 });
-        await busca.type(passo.textos[0], { delay: 60 });
-        await pausaHumana(1500, 2500);
-        clicou = await clicarTexto(page, passo.textos, 8000);
-      }
-    }
-
-    if (clicou) {
-      log(nome, `Cliquei em "${passo.nome}".`);
-      await pausaHumana(1500, 3000);
-      continue;
-    }
-
-    // Não achou: se uma tela mais à frente já está aparecendo, pula para ela
-    let pulou = false;
-    for (let j = i + 1; j < PASSOS.length; j++) {
-      if (await existeTexto(page, PASSOS[j].textos)) {
-        log(nome, `"${passo.nome}" não apareceu, seguindo para "${PASSOS[j].nome}".`);
-        i = j - 1;
-        pulou = true;
+    while (Date.now() - inicio < 20000) {
+      el = await acharTexto(page, passo.textos).catch(() => null);
+      if (el) {
+        alvo = i;
         break;
       }
+      // Lista de categorias com busca: digita para "Blog pessoal" aparecer
+      if (passo.categoria && !buscou && Date.now() - inicio > 1500) {
+        const busca = await page.$('input[type="search"], input[placeholder*="esquis"], input[placeholder*="earch"], input[placeholder*="usca"]');
+        if (busca) {
+          buscou = true;
+          await busca.click({ clickCount: 3 });
+          await busca.type(passo.textos[0], { delay: 20 });
+          continue;
+        }
+      }
+      // Passo não apareceu em 2,5s: se uma tela mais à frente já está aparecendo, pula para ela
+      if (Date.now() - inicio > 2500) {
+        for (let j = i + 1; j < PASSOS.length; j++) {
+          el = await acharTexto(page, PASSOS[j].textos).catch(() => null);
+          if (el) {
+            alvo = j;
+            break;
+          }
+          if (!PASSOS[j].opcional) break; // não pula por cima de um passo obrigatório
+        }
+        if (alvo >= 0) break;
+      }
+      await esperar(250);
     }
-    if (!pulou && !passo.opcional) throw new Error(`Não achei o botão "${passo.nome}"`);
+
+    if (alvo < 0) {
+      if (passo.opcional) {
+        i++;
+        continue;
+      }
+      throw new Error(`Não achei o botão "${passo.nome}"`);
+    }
+    if (alvo > i) log(nome, `"${passo.nome}" não apareceu, seguindo para "${PASSOS[alvo].nome}".`);
+
+    await pausaHumana(300, 700);
+    await el.click().catch(() => {});
+    log(nome, `Cliquei em "${PASSOS[alvo].nome}".`);
+    // Opções (Criador, Blog pessoal) continuam na tela; botões de avançar somem quando a tela muda
+    if (PASSOS[alvo].selecao || PASSOS[alvo].categoria) await pausaHumana(300, 600);
+    else await esperarSumir(el);
+    i = alvo + 1;
   }
 
   // Depois de "Permitir", espera voltar para o site
   const fim = Date.now() + 60000;
-  while (Date.now() < fim && /instagram\.com|facebook\.com/.test(page.url())) await esperar(1000);
+  while (Date.now() < fim && /instagram\.com|facebook\.com/.test(page.url())) await esperar(300);
   if (/instagram\.com|facebook\.com/.test(page.url())) throw new Error('Cliquei em "Permitir", mas não voltou para o site');
 }
 
@@ -493,7 +538,7 @@ async function main() {
         }
         if (!browser.connected) throw new Error('O Edge foi fechado');
       }
-      if (i < contas.length - 1) await pausaHumana(8000, 15000);
+      if (i < contas.length - 1) await esperar(1000 + Math.random() * 1000);
     }
   } finally {
     console.log('\n===== RESUMO =====');
