@@ -579,6 +579,16 @@ async function main() {
           resultado.push(`✘ ${conta.usuario}: ${err.message}`);
         }
         if (!browser.connected) throw new Error('O Edge foi fechado');
+        // Sai da tela do Instagram (ex.: 2FA) e fecha abas extras, para não ficar aberta
+        try {
+          const pages = await browser.pages();
+          for (const p of pages.slice(1)) await p.close().catch(() => {});
+          const page = (await browser.pages())[0];
+          if (page) {
+            await limparLoginInstagram(page).catch(() => {});
+            await page.goto('about:blank', { timeout: 15000 }).catch(() => {});
+          }
+        } catch {}
       }
       if (i < contas.length - 1) await esperar(3000 + Math.random() * 3000);
     }
