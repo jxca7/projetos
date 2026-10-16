@@ -29,6 +29,7 @@ const PASSOS = [
   { nome: 'Blog pessoal', textos: ['Blog pessoal', 'Personal blog', 'Personal Blog'], categoria: true },
   { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'] },
   { nome: 'Continuar', textos: ['Continuar', 'Continue'] },
+  { nome: 'Concluir (2ª vez)', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'], opcional: true },
   // Tela "fulano-IG está solicitando acesso a: conta. Ao selecionar Permitir, ..."
   { nome: 'Permitir', textos: ['Permitir', 'Allow', 'Allow access'] },
 ];

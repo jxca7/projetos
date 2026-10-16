@@ -21,7 +21,7 @@ Para cada conta, o script:
 3. Entra na conta do Instagram com o login e a senha.
    **Se pedir 2FA (código), pula a conta**: ela vai para o `2fa.txt` e o script passa para a próxima.
 4. Clica em **Agora não → Mudar → Criador de conteúdo → Avançar → Avançar → Blog pessoal →
-   Concluir → Continuar → Permitir** (na tela "... está solicitando acesso a: ...").
+   Concluir → Continuar → Concluir → Permitir** (na tela "... está solicitando acesso a: ...").
 5. Desloga do Instagram e passa para a próxima conta.
 
 As contas que deram certo saem do `contas.txt` e vão para o `feitos.txt`. As que pediram 2FA vão
