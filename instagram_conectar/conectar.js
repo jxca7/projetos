@@ -195,14 +195,6 @@ async function fecharPopup(page, nome) {
   if (await clicarTexto(page, TXT_AGORA_NAO, 6000)) {
     log(nome, 'Fechei o pop-up do site ("Agora não").');
     await pausaHumana(800, 1500);
-    return;
-  }
-  // Sem "Agora não": tenta o "X" do pop-up
-  const x = await page.$('[role="dialog"] [aria-label*="echar" i], [role="dialog"] [aria-label*="lose" i], [aria-modal="true"] [aria-label*="echar" i], [aria-modal="true"] [aria-label*="lose" i]');
-  if (x) {
-    await x.click().catch(() => {});
-    log(nome, 'Fechei o pop-up do site (X).');
-    await pausaHumana(800, 1500);
   }
 }
 
@@ -242,25 +234,94 @@ async function entrarNoSite(page, site, nome) {
   return true;
 }
 
+// Clica no primeiro "Conectar Instagram" (o de cima) e marca ele, para o segundo clique não acertar o mesmo
+async function clicarPrimeiroConectar(page, timeout) {
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    const el = await acharTexto(page, TXT_CONECTAR).catch(() => null);
+    if (el) {
+      await el.evaluate((e) => (e.closest('button, a, [role="button"]') || e).setAttribute('data-conectar-1', '1'));
+      await pausaHumana(400, 900);
+      await el.click().catch(() => {});
+      return true;
+    }
+    await esperar(500);
+  }
+  return false;
+}
+
+// Segundo "Conectar Instagram": o BOTÃO da janelinha (não o título dela, nem o botão de cima)
+async function clicarSegundoConectar(page, timeout) {
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    const handle = await page
+      .evaluateHandle((textos) => {
+        const norm = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+        const alvo = textos.map(norm);
+        const visivel = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const topo = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return topo && (el.contains(topo) || topo.contains(el));
+        };
+        const botoes = [...document.querySelectorAll('button, a, [role="button"]')].filter(
+          (b) => !b.hasAttribute('data-conectar-1') && !b.closest('[data-conectar-1]') && alvo.includes(norm(b.innerText)) && visivel(b),
+        );
+        return botoes[botoes.length - 1] || null;
+      }, TXT_CONECTAR)
+      .catch(() => null);
+    const el = handle && handle.asElement();
+    if (el) {
+      await pausaHumana(400, 900);
+      await el.click().catch(() => {});
+      return true;
+    }
+    await esperar(500);
+  }
+  return false;
+}
+
+// Espera sair do site (ir para o Instagram) ou aparecer a tela de login do Instagram
+async function esperouIrParaInstagram(page, site, timeout) {
+  const origemSite = new URL(site).origin;
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    if (!page.url().startsWith(origemSite)) return true;
+    if (await page.$('input[name="username"]').catch(() => null)) return true;
+    await esperar(500);
+  }
+  return false;
+}
+
 async function clicarConectar(page, site, nome) {
   await page.goto(site, { waitUntil: 'networkidle2', timeout: 60000 });
   await entrarNoSite(page, site, nome);
+  await fecharPopup(page, nome); // o pop-up da extensão aparece toda vez que abre o site
 
-  // Se ainda assim pedir login, espera você entrar na mão
-  if (!(await clicarTexto(page, TXT_CONECTAR, 15000))) {
+  if (!(await clicarPrimeiroConectar(page, 15000))) {
     if (await entrarNoSite(page, site, nome)) {
-      if (!(await clicarTexto(page, TXT_CONECTAR, 15000))) throw new Error('Não achei o botão "Conectar Instagram"');
+      await fecharPopup(page, nome);
+      if (!(await clicarPrimeiroConectar(page, 15000))) throw new Error('Não achei o botão "Conectar Instagram"');
     } else {
       log(nome, '>>> Não achei "Conectar Instagram". Se o site pediu login, entre na mão nessa janela do Edge. Estou esperando...');
-      if (!(await clicarTexto(page, TXT_CONECTAR, ESPERA_MANUAL))) throw new Error('Não achei o botão "Conectar Instagram"');
+      if (!(await clicarPrimeiroConectar(page, ESPERA_MANUAL))) throw new Error('Não achei o botão "Conectar Instagram"');
     }
   }
-  log(nome, 'Cliquei em "Conectar Instagram".');
+  log(nome, 'Cliquei em "Conectar Instagram" (em cima).');
   await pausaHumana(1500, 2500);
 
-  // Segundo "Conectar Instagram", dentro da janelinha
-  if (!(await clicarTexto(page, TXT_CONECTAR, 10000))) throw new Error('Não achei o segundo "Conectar Instagram"');
-  log(nome, 'Cliquei no segundo "Conectar Instagram".');
+  // Botão da janelinha; se não for para o Instagram, fecha pop-up que tenha aparecido e tenta de novo
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    if (await clicarSegundoConectar(page, 10000)) {
+      log(nome, 'Cliquei em "Conectar Instagram" (na janelinha).');
+      if (await esperouIrParaInstagram(page, site, 15000)) return;
+    }
+    log(nome, `Não foi para o Instagram, tentando de novo (${tentativa}/3)...`);
+    await fecharPopup(page, nome);
+    if (!(await existeTexto(page, ['OAuth do app Meta']))) await clicarPrimeiroConectar(page, 5000);
+    await pausaHumana(1500, 2500);
+  }
+  throw new Error('Cliquei em "Conectar Instagram" mas não abriu o login do Instagram');
 }
 
 async function fazerLogin(page, conta, nome) {
