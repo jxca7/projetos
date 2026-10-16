@@ -157,6 +157,64 @@ def carregar_fonte(tamanho):
     return ImageFont.load_default(tamanho)
 
 
+def carregar_fonte_emoji(tamanho):
+    """Fonte de emoji colorido (Segoe UI Emoji no Windows). None se não achar."""
+    for nome in ("seguiemj.ttf", "C:/Windows/Fonts/seguiemj.ttf", "NotoColorEmoji.ttf"):
+        try:
+            return ImageFont.truetype(nome, tamanho)
+        except OSError:
+            pass
+    return None
+
+
+def _eh_emoji(ch):
+    c = ord(ch)
+    return (
+        0x1F000 <= c <= 0x1FAFF
+        or 0x2600 <= c <= 0x27BF
+        or 0x1F1E6 <= c <= 0x1F1FF
+        or c in (0x2122, 0x2139, 0x2B50, 0x2B55, 0x2B1B, 0x2B1C, 0x3030, 0x303D, 0x2049, 0x203C)
+        or 0x2190 <= c <= 0x21AA
+    )
+
+
+def _runs(texto):
+    """Divide o texto em pedaços (é_emoji, texto). Mantém seletor de variação e ZWJ junto do emoji."""
+    runs = []
+    for ch in texto:
+        emo = _eh_emoji(ch)
+        # seletores (FE0F/FE0E), ZWJ e tons de pele colam no emoji anterior
+        if ch in ("\uFE0F", "\uFE0E", "\u200D") or 0x1F3FB <= ord(ch) <= 0x1F3FF:
+            if runs:
+                runs[-1][1] += ch
+                continue
+            emo = True
+        if runs and runs[-1][0] == emo:
+            runs[-1][1] += ch
+        else:
+            runs.append([emo, ch])
+    return runs
+
+
+def medir_texto(draw, texto, fonte, fonte_emoji):
+    larg = 0
+    for emo, sub in _runs(texto):
+        f = fonte_emoji if (emo and fonte_emoji) else fonte
+        larg += draw.textlength(sub, font=f)
+    return larg
+
+
+def desenhar_texto(draw, x, y, texto, fonte, fonte_emoji, fill):
+    """Desenha texto com emoji colorido, alinhado à esquerda no meio (anchor lm)."""
+    for emo, sub in _runs(texto):
+        if emo and fonte_emoji:
+            draw.text((x, y), sub, font=fonte_emoji, anchor="lm", embedded_color=True)
+            x += draw.textlength(sub, font=fonte_emoji)
+        else:
+            draw.text((x, y), sub, font=fonte, fill=fill, anchor="lm")
+            x += draw.textlength(sub, font=fonte)
+
+
 def desenhar_icone_link(draw, cx, cy, tam, cor):
     """Dois elos de corrente inclinados, parecido com o ícone do Instagram."""
     elo = Image.new("RGBA", (tam * 2, tam * 2), (0, 0, 0, 0))
@@ -191,20 +249,19 @@ def montar_story(imagem, rotulo):
     area = None
     if rotulo:
         fonte = carregar_fonte(44)
+        fonte_emoji = carregar_fonte_emoji(44)
         draw = ImageDraw.Draw(canvas)
-        caixa = draw.textbbox((0, 0), rotulo, font=fonte)
-        texto_w, texto_h = caixa[2] - caixa[0], caixa[3] - caixa[1]
+        texto_w = medir_texto(draw, rotulo, fonte, fonte_emoji)
         icone, alt, pad = 44, 104, 34
-        larg = min(pad + icone + 16 + texto_w + pad, LARGURA - 80)
+        larg = int(min(pad + icone + 16 + texto_w + pad, LARGURA - 80))
         cx, cy = LARGURA * LINK_X, ALTURA * LINK_Y
         x0, y0 = int(cx - larg / 2), int(cy - alt / 2)
 
-        draw = ImageDraw.Draw(canvas)
         draw.rounded_rectangle([x0, y0, x0 + larg, y0 + alt], radius=24, fill="white")
         azul = (0, 149, 246)
         elo, pos = desenhar_icone_link(draw, x0 + pad + icone / 2, cy, icone, azul)
         canvas.paste(elo, pos, elo)
-        draw.text((x0 + pad + icone + 16, cy), rotulo, font=fonte, fill=azul, anchor="lm")
+        desenhar_texto(draw, x0 + pad + icone + 16, cy, rotulo, fonte, fonte_emoji, azul)
         area = (LINK_X, LINK_Y, larg / LARGURA, alt / ALTURA)
 
     destino = Path(tempfile.gettempdir()) / "story_para_postar.jpg"
