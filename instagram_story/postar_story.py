@@ -276,20 +276,28 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
         log(nome, "AVISO: o story foi postado, mas o Instagram não devolveu a figurinha de link. Confira no app.")
     log(nome, f"Story postado (id {story.pk}).")
 
-    # Destacar: coloca o story num Destaque do perfil
+    # Destacar: coloca o story num Destaque do perfil (tenta algumas vezes, o story demora a ficar pronto)
     if destaque:
-        try:
-            time.sleep(3)  # dá um tempo para o story ficar disponível
-            sid = str(story.pk)
-            existente = next((h for h in cl.user_highlights(cl.user_id) if h.title.strip().lower() == destaque.lower()), None)
-            if existente:
-                cl.highlight_add_stories(existente.pk, [cl.media_id(sid)])
-                log(nome, f'Story adicionado ao destaque "{destaque}".')
-            else:
-                cl.highlight_create(destaque, [sid])
-                log(nome, f'Destaque "{destaque}" criado com o story.')
-        except Exception as e:
-            log(nome, f"AVISO: não consegui destacar ({e}). O story foi postado mesmo assim.")
+        sid = str(story.pk)
+        ok = False
+        ultimo_erro = None
+        for tentativa in range(3):
+            time.sleep(8 if tentativa == 0 else 15)  # o story precisa aparecer antes de poder destacar
+            try:
+                existente = next((h for h in cl.user_highlights(cl.user_id) if h.title.strip().lower() == destaque.lower()), None)
+                if existente:
+                    cl.highlight_add_stories(existente.pk, [cl.media_id(sid)])
+                    log(nome, f'Story adicionado ao destaque "{destaque}".')
+                else:
+                    cl.highlight_create(destaque, [sid])
+                    log(nome, f'Destaque "{destaque}" criado com o story.')
+                ok = True
+                break
+            except Exception as e:
+                ultimo_erro = e
+                log(nome, f"Destaque falhou (tentativa {tentativa + 1}/3): {e}")
+        if not ok:
+            log(nome, f"AVISO: não consegui destacar ({ultimo_erro}). O story foi postado mesmo assim.")
 
 
 def main():
