@@ -35,9 +35,12 @@ PASTA_MORTOS = PASTA_COOKIES / "mortos"  # cookies desconectados/expirados
 PASTA_SESSOES = PASTA / "sessoes"
 EXT_FOTO = (".jpg", ".jpeg", ".png", ".webp")
 
-# Intervalo entre uma conta e outra, em segundos (aleatório para não parecer robô)
-INTERVALO_MIN = 60
-INTERVALO_MAX = 180
+# Intervalo PADRÃO entre contas que postaram com sucesso, em segundos (pode mudar no intervalo.txt)
+INTERVALO_MIN = 30
+INTERVALO_MAX = 90
+# Espera curta depois de uma conta que falhou (2FA, cookie morto, erro): não precisa "descansar"
+FALHA_MIN = 3
+FALHA_MAX = 8
 
 # Posição do centro da figurinha de link na tela (0 a 1). y=0.8 deixa ela mais para baixo.
 LINK_X = 0.5
@@ -74,6 +77,26 @@ def ler_destaque():
     if not nome or nome.lower().startswith("nome do destaque"):
         return None
     return nome.splitlines()[0].strip()
+
+
+def ler_intervalo():
+    """intervalo.txt: segundos de espera entre contas que postaram. 'min-max' (ex.: 20-60) ou um número.
+
+    Vazio = usa o padrão (INTERVALO_MIN a INTERVALO_MAX).
+    """
+    texto = (ler_texto(PASTA / "intervalo.txt") or "").strip()
+    if not texto:
+        return INTERVALO_MIN, INTERVALO_MAX
+    try:
+        if "-" in texto:
+            a, b = texto.split("-", 1)
+            mn, mx = int(a.strip()), int(b.strip())
+        else:
+            mn = mx = int(texto)
+        mn, mx = max(0, mn), max(0, mx)
+        return (mn, mx) if mn <= mx else (mx, mn)
+    except ValueError:
+        return INTERVALO_MIN, INTERVALO_MAX
 
 
 def ler_modo():
@@ -434,6 +457,9 @@ def main():
     modo = ler_modo()
     nomes_modo = {"cookie": "só cookie", "senha": "só usuário e senha", "auto": "cookie e, se falhar, senha"}
     print(f"Modo: {modo} ({nomes_modo[modo]}).")
+    global INTERVALO_MIN, INTERVALO_MAX
+    INTERVALO_MIN, INTERVALO_MAX = ler_intervalo()
+    print(f"Espera entre contas que postarem: {INTERVALO_MIN} a {INTERVALO_MAX}s.")
     proxy = ler_proxy()
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
@@ -470,12 +496,14 @@ def main():
     itens = list(contas.items())
     for i, (nome, arquivo) in enumerate(itens):
         senha = senhas.get(nome.lower())
+        sucesso = False
         try:
             postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senha, modo)
             if arquivo is not None:
                 shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
+            sucesso = True
         except FalhaAposLogin as err:
             # Logou, mas o Instagram recusou a ação. NÃO é cookie morto: separa em cookies/recusado/
             msg = str(err)
@@ -495,8 +523,8 @@ def main():
         except Exception as err:
             msg = str(err) or type(err).__name__
             ml = msg.lower()
-            # pediu verificação (2FA / código): NÃO é cookie morto. Pula a conta e separa em cookies/precisa_2fa/
             if any(x in ml for x in ["2fa", "duas etapas", "verificação", "verificacao", "checkpoint", "challenge"]):
+                # pediu verificação (2FA): NÃO é cookie morto. Separa em cookies/precisa_2fa/
                 log(nome, "Pediu verificação (2FA/código) — pulei esta conta.")
                 if arquivo is not None:
                     pasta = PASTA_COOKIES / "precisa_2fa"
@@ -508,16 +536,8 @@ def main():
                     resultado.append(f"⏭ {nome}: pediu verificação (cookies/precisa_2fa/)")
                 else:
                     resultado.append(f"⏭ {nome}: pediu verificação (2FA)")
-                with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
-                    f.write(f"{datetime.now():%d/%m %H:%M} {nome}: 2FA/verificacao: {msg}\n")
-                if i < len(itens) - 1:
-                    espera = random.randint(INTERVALO_MIN, INTERVALO_MAX)
-                    print(f"Esperando {espera}s antes da próxima conta...")
-                    time.sleep(espera)
-                continue
-            # login não deu certo (cookie desconectado/expirado): separa em cookies/mortos/
-            morto = any(x in ml for x in ["logged_out", "login_required", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"])
-            if morto and arquivo is not None:
+            elif any(x in ml for x in ["logged_out", "login_required", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"]) and arquivo is not None:
+                # login não deu certo (cookie desconectado/expirado): separa em cookies/mortos/
                 PASTA_MORTOS.mkdir(exist_ok=True)
                 try:
                     shutil.move(str(arquivo), str(PASTA_MORTOS / arquivo.name))
@@ -531,8 +551,12 @@ def main():
             with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: {type(err).__name__}: {msg}\n")
 
+        # Espera longa só depois de postar com sucesso (anti-bloqueio). Falhou? espera pouco e segue.
         if i < len(itens) - 1:
-            espera = random.randint(INTERVALO_MIN, INTERVALO_MAX)
+            if sucesso:
+                espera = random.randint(INTERVALO_MIN, INTERVALO_MAX)
+            else:
+                espera = random.randint(FALHA_MIN, FALHA_MAX)
             print(f"Esperando {espera}s antes da próxima conta...")
             time.sleep(espera)
 

@@ -37,6 +37,12 @@ usuário e senha. Para isso:
 Se o login por senha pedir 2FA ou cair em verificação, o script pula a conta e avisa.
 O `senhas.txt` tem senhas: ele fica bloqueado no `.gitignore` e NUNCA deve ir para o GitHub.
 
+## Tempo de espera entre as contas
+Por padrão, o script espera de **30 a 90 segundos** depois de cada conta que postou
+(isso evita bloqueio). As contas que falharam (2FA, cookie morto) esperam só uns segundos.
+Para mudar, crie o **`intervalo.txt`** com `min-max` (ex.: `20-60`) ou um número só (ex.: `40`).
+Quanto menor, mais rápido — e maior o risco de bloqueio.
+
 ## Opcional
 - **Proxy:** crie um `proxy.txt` com `host:porta` ou `host:porta:usuario:senha`.
 
