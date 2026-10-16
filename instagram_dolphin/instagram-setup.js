@@ -26,6 +26,7 @@ const TXT_PERMISSOES = ['Permissões do site do app', 'Website permissions', 'Ap
 const TXT_APPS_E_SITES = ['Apps e sites', 'Apps and websites'];
 const TXT_CONVITES = ['Convites do testador', 'Convites de testador', 'Tester invites', 'Tester Invites'];
 const TXT_ACEITAR = ['Aceitar', 'Accept'];
+const TXT_REMOVER = ['Remover', 'Remove'];
 const TXT_SEM_CONVITES = ['não tem convites', 'nenhum convite', 'no tester invites', "don't have any", 'não tem nenhum'];
 
 // ---------- utilidades ----------
@@ -267,21 +268,25 @@ async function textoDoErro(page) {
   }, TXT_ERRO_SALVAR);
 }
 
-// Clica no elemento visível mais "de dentro" cujo texto é exatamente um dos textos (sem diferenciar maiúsculas)
+// Acha o elemento visível mais "de dentro" cujo texto é exatamente um dos textos (sem diferenciar maiúsculas)
+async function acharTexto(page, textos) {
+  const handle = await page.evaluateHandle((textos) => {
+    const alvo = textos.map((t) => t.toLowerCase());
+    const candidatos = [...document.querySelectorAll('body *')].filter((el) => {
+      const t = (el.innerText || '').trim().toLowerCase();
+      const r = el.getBoundingClientRect();
+      return alvo.includes(t) && r.width > 0 && r.height > 0;
+    });
+    // o mais interno (sem filho que também bata)
+    return candidatos.find((el) => !candidatos.some((o) => o !== el && el.contains(o))) || null;
+  }, textos);
+  return handle.asElement();
+}
+
 async function clicarTexto(page, textos, timeout = 10000) {
   const fim = Date.now() + timeout;
   while (Date.now() < fim) {
-    const handle = await page.evaluateHandle((textos) => {
-      const alvo = textos.map((t) => t.toLowerCase());
-      const candidatos = [...document.querySelectorAll('body *')].filter((el) => {
-        const t = (el.innerText || '').trim().toLowerCase();
-        const r = el.getBoundingClientRect();
-        return alvo.includes(t) && r.width > 0 && r.height > 0;
-      });
-      // o mais interno (sem filho que também bata)
-      return candidatos.find((el) => !candidatos.some((o) => o !== el && el.contains(o))) || null;
-    }, textos);
-    const el = handle.asElement();
+    const el = await acharTexto(page, textos).catch(() => null);
     if (el) {
       await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
       await pausaHumana(300, 700);
@@ -324,8 +329,22 @@ async function aceitarConvitesTestador(page, nome) {
   if (!(await clicarTexto(page, TXT_CONVITES))) throw new Error('Não achei "Convites do testador"');
   await pausaHumana(2000, 3500);
 
+  // Espera aparecer "Aceitar" (convite pendente) ou "Remover" (convite já aceito antes)
+  const ate = Date.now() + 6000;
+  let temAceitar = false;
+  let temRemover = false;
+  while (Date.now() < ate && !temAceitar && !temRemover) {
+    temAceitar = !!(await acharTexto(page, TXT_ACEITAR).catch(() => null));
+    temRemover = !!(await acharTexto(page, TXT_REMOVER).catch(() => null));
+    if (!temAceitar && !temRemover) await esperar(250);
+  }
+  if (temRemover && !temAceitar) {
+    log(nome, 'Convite do testador já tinha sido aceito ("Remover"), indo para foto e bio.');
+    return;
+  }
+
   let aceitos = 0;
-  while (aceitos < 20 && (await clicarTexto(page, TXT_ACEITAR, aceitos ? 2000 : 6000))) {
+  while (aceitos < 20 && (await clicarTexto(page, TXT_ACEITAR, aceitos ? 2000 : 1000))) {
     aceitos++;
     await pausaHumana(1000, 2000);
     await clicarTexto(page, TXT_ACEITAR, 800); // às vezes pede para confirmar
