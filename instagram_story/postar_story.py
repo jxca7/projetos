@@ -15,7 +15,6 @@ from urllib.parse import unquote, urlparse
 import logging
 
 from instagrapi import Client
-from instagrapi.exceptions import BadPassword, ChallengeRequired, TwoFactorRequired
 from instagrapi.types import StoryLink
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -97,41 +96,6 @@ def ler_intervalo():
         return (mn, mx) if mn <= mx else (mx, mn)
     except ValueError:
         return INTERVALO_MIN, INTERVALO_MAX
-
-
-def ler_modo():
-    """modo.txt: 'cookie' (só cookie), 'senha' (só usuário e senha) ou 'auto' (cookie e, se falhar, senha).
-
-    Vazio ou ausente = 'auto'.
-    """
-    texto = (ler_texto(PASTA / "modo.txt") or "").strip().lower()
-    if texto.startswith("cookie"):
-        return "cookie"
-    if texto.startswith("senha") or texto.startswith("login"):
-        return "senha"
-    return "auto"
-
-
-def ler_senhas():
-    """senhas.txt: uma linha por conta, no formato usuario:senha.
-
-    Serve de reserva: se o cookie falhar, o script tenta entrar com usuario e senha.
-    O usuario tem que ser igual ao NOME do arquivo de cookie (ex.: joao.json -> joao).
-    """
-    texto = ler_texto(PASTA / "senhas.txt")
-    mapa = {}
-    if not texto:
-        return mapa
-    for linha in texto.splitlines():
-        linha = linha.strip()
-        if not linha or linha.startswith("#") or ":" not in linha:
-            continue
-        i = linha.index(":")
-        usuario = linha[:i].strip()
-        senha = linha[i + 1:].strip()
-        if usuario and senha and not usuario.lower().startswith("usuario"):
-            mapa[usuario.lower()] = senha
-    return mapa
 
 
 def ler_link():
@@ -327,21 +291,6 @@ def novo_cliente(proxy):
     return cl
 
 
-def login_por_senha(nome, senha, proxy, arquivo_sessao):
-    cl = novo_cliente(proxy)
-    if arquivo_sessao.exists():
-        cl.load_settings(arquivo_sessao)
-    try:
-        cl.login(nome, senha)
-    except TwoFactorRequired:
-        raise RuntimeError("pediu verificação em duas etapas (2FA) no login por senha")
-    except ChallengeRequired:
-        raise RuntimeError("caiu em verificação (checkpoint) no login por senha")
-    except BadPassword:
-        raise RuntimeError("usuário ou senha incorretos no senhas.txt")
-    return cl
-
-
 def login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao):
     cl = novo_cliente(proxy)
     if arquivo_sessao.exists():
@@ -396,47 +345,15 @@ def enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao):
             log(nome, f"AVISO: não consegui destacar ({ultimo_erro}). O story foi postado mesmo assim.")
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, modo):
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque):
     PASTA_SESSOES.mkdir(exist_ok=True)
     arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
 
-    # Métodos a tentar, nesta ordem. Se um falhar (no login OU ao postar), tenta o próximo.
-    # modo 'cookie' só cookie; 'senha' só senha; 'auto' = os dois (cookie e, se falhar, senha).
-    metodos = []
-    if arquivo_cookies is not None and modo != "senha":
-        metodos.append("cookie")
-    if senha is not None and modo != "cookie":
-        metodos.append("senha")
-    if not metodos:
-        raise RuntimeError("sem cookie e sem senha para essa conta (confira o modo.txt)")
+    log(nome, "Entrando pelo cookie...")
+    cl = login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao)
+    log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
-    ultimo_erro = None
-    for metodo in metodos:
-        try:
-            if metodo == "cookie":
-                log(nome, "Entrando pelo cookie...")
-                cl = login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao)
-            else:
-                log(nome, "Entrando com usuário e senha...")
-                cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
-            log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
-        except Exception as e:
-            ultimo_erro = e
-            # verificação no login por senha: não adianta repetir; se ainda houver outro método, tenta
-            log(nome, f"Login por {metodo} falhou ({type(e).__name__}).")
-            continue
-
-        # login ok -> tenta postar; se a postagem falhar, tenta o próximo método (ex.: cookie -> senha)
-        try:
-            enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao)
-            return  # sucesso
-        except FalhaAposLogin as e:
-            ultimo_erro = e
-            if metodo != metodos[-1]:
-                log(nome, "Vou tentar o outro jeito de entrar...")
-            continue
-
-    raise ultimo_erro
+    enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao)
 
 
 def main():
@@ -453,10 +370,6 @@ def main():
     if destaque:
         print(f'Vai destacar em: "{destaque}"')
 
-    senhas = ler_senhas()
-    modo = ler_modo()
-    nomes_modo = {"cookie": "só cookie", "senha": "só usuário e senha", "auto": "cookie e, se falhar, senha"}
-    print(f"Modo: {modo} ({nomes_modo[modo]}).")
     global INTERVALO_MIN, INTERVALO_MAX
     INTERVALO_MIN, INTERVALO_MAX = ler_intervalo()
     print(f"Espera entre contas que postarem: {INTERVALO_MIN} a {INTERVALO_MAX}s.")
@@ -464,43 +377,23 @@ def main():
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
 
-    # Monta a lista de contas conforme o modo:
-    #  - cookie: só os cookies da pasta;  senha: só os usuários do senhas.txt;  auto: os dois.
-    contas = {}  # nome -> arquivo de cookie (ou None)
-    if modo != "senha":
-        for f in sorted(PASTA_COOKIES.iterdir()):
-            if f.is_file() and f.suffix.lower() in (".json", ".txt"):
-                contas[f.stem] = f
-    if modo != "cookie":
-        for usuario in senhas:
-            contas.setdefault(usuario, None)
-
-    if not contas:
-        print("Nenhuma conta. Coloque cookies em cookies/ ou contas no senhas.txt.")
+    # Lista as contas: cada arquivo de cookie da pasta cookies/.
+    arquivos = sorted(f for f in PASTA_COOKIES.iterdir() if f.is_file() and f.suffix.lower() in (".json", ".txt"))
+    if not arquivos:
+        print("Nenhum cookie na pasta cookies/. Coloque os cookies e rode de novo.")
         return
-
-    com_cookie = sum(1 for a in contas.values() if a is not None)
-    com_senha = sum(1 for n in contas if senhas.get(n.lower()))
-    print(f"{len(contas)} conta(s): {com_cookie} com cookie, {com_senha} com senha de reserva.")
-    # Avisa quando o cookie não tem senha com o mesmo nome (a reserva não vai funcionar nessa)
-    sem_reserva = [n for n, a in contas.items() if a is not None and not senhas.get(n.lower())]
-    if senhas and sem_reserva:
-        print("AVISO: estes cookies NÃO têm senha de reserva com o mesmo nome no senhas.txt:")
-        print("       " + ", ".join(sem_reserva))
-        print("       (para a reserva funcionar, o nome do cookie tem que ser igual ao usuário)")
+    print(f"{len(arquivos)} cookie(s) para postar.")
 
     imagem_jpg, area = montar_story(imagem, rotulo if link else None)
     PASTA_FEITOS.mkdir(exist_ok=True)
 
     resultado = []
-    itens = list(contas.items())
+    itens = [(f.stem, f) for f in arquivos]
     for i, (nome, arquivo) in enumerate(itens):
-        senha = senhas.get(nome.lower())
         sucesso = False
         try:
-            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senha, modo)
-            if arquivo is not None:
-                shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
+            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque)
+            shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
             sucesso = True
@@ -508,36 +401,30 @@ def main():
             # Logou, mas o Instagram recusou a ação. NÃO é cookie morto: separa em cookies/recusado/
             msg = str(err)
             log(nome, f"ERRO: {msg}")
-            if arquivo is not None:
-                pasta = PASTA_COOKIES / "recusado"
-                pasta.mkdir(exist_ok=True)
-                try:
-                    shutil.move(str(arquivo), str(pasta / arquivo.name))
-                except Exception:
-                    pass
-                resultado.append(f"✘ {nome}: {msg} (cookies/recusado/)")
-            else:
-                resultado.append(f"✘ {nome}: {msg}")
+            pasta = PASTA_COOKIES / "recusado"
+            pasta.mkdir(exist_ok=True)
+            try:
+                shutil.move(str(arquivo), str(pasta / arquivo.name))
+            except Exception:
+                pass
+            resultado.append(f"✘ {nome}: {msg} (cookies/recusado/)")
             with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: FalhaAposLogin: {msg}\n")
         except Exception as err:
             msg = str(err) or type(err).__name__
             ml = msg.lower()
             if any(x in ml for x in ["2fa", "duas etapas", "verificação", "verificacao", "checkpoint", "challenge"]):
-                # pediu verificação (2FA): NÃO é cookie morto. Separa em cookies/precisa_2fa/
-                log(nome, "Pediu verificação (2FA/código) — pulei esta conta.")
-                if arquivo is not None:
-                    pasta = PASTA_COOKIES / "precisa_2fa"
-                    pasta.mkdir(exist_ok=True)
-                    try:
-                        shutil.move(str(arquivo), str(pasta / arquivo.name))
-                    except Exception:
-                        pass
-                    resultado.append(f"⏭ {nome}: pediu verificação (cookies/precisa_2fa/)")
-                else:
-                    resultado.append(f"⏭ {nome}: pediu verificação (2FA)")
-            elif any(x in ml for x in ["logged_out", "login_required", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"]) and arquivo is not None:
-                # login não deu certo (cookie desconectado/expirado): separa em cookies/mortos/
+                # conta em verificação: separa em cookies/precisa_2fa/
+                log(nome, "Conta em verificação (checkpoint) — pulei.")
+                pasta = PASTA_COOKIES / "precisa_2fa"
+                pasta.mkdir(exist_ok=True)
+                try:
+                    shutil.move(str(arquivo), str(pasta / arquivo.name))
+                except Exception:
+                    pass
+                resultado.append(f"⏭ {nome}: conta em verificação (cookies/precisa_2fa/)")
+            else:
+                # cookie desconectado/expirado ou outro erro de login: separa em cookies/mortos/
                 PASTA_MORTOS.mkdir(exist_ok=True)
                 try:
                     shutil.move(str(arquivo), str(PASTA_MORTOS / arquivo.name))
@@ -545,9 +432,6 @@ def main():
                     pass
                 log(nome, "ERRO: cookie não logou — movido para cookies/mortos/")
                 resultado.append(f"✘ {nome}: cookie não logou (cookies/mortos/)")
-            else:
-                log(nome, f"ERRO: {msg}")
-                resultado.append(f"✘ {nome}: {msg}")
             with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: {type(err).__name__}: {msg}\n")
 

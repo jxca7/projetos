@@ -18,25 +18,6 @@ O script posta em uma conta de cada vez, esperando de 1 a 3 minutos entre elas. 
 deram certo vão para `cookies/feitos/`. As que deram erro continuam em `cookies/` e ficam
 anotadas no `erros.txt`.
 
-## Escolher cookie ou usuário e senha
-No arquivo **`modo.txt`** você decide como o script entra nas contas:
-- **`cookie`** — usa só os cookies da pasta `cookies/`.
-- **`senha`** — usa só usuário e senha do `senhas.txt` (ignora os cookies).
-- **`auto`** — tenta os dois: se o cookie não entrar (ou não conseguir postar), tenta usuário e senha,
-  e vice-versa. (padrão)
-
-Se o `modo.txt` estiver vazio, usa `auto`.
-
-## Reserva: logar por usuário e senha
-Se o cookie de uma conta falhar (desconectado/expirado), o script pode tentar entrar com
-usuário e senha. Para isso:
-1. Renomeie `senhas.exemplo.txt` para **`senhas.txt`**.
-2. Escreva uma conta por linha, no formato `usuario:senha`.
-3. O **usuário tem que ser o mesmo nome do arquivo de cookie** (ex.: cookie `joao.json` -> `joao:senha`).
-
-Se o login por senha pedir 2FA ou cair em verificação, o script pula a conta e avisa.
-O `senhas.txt` tem senhas: ele fica bloqueado no `.gitignore` e NUNCA deve ir para o GitHub.
-
 ## Tempo de espera entre as contas
 Por padrão, o script espera de **30 a 90 segundos** depois de cada conta que postou
 (isso evita bloqueio). As contas que falharam (2FA, cookie morto) esperam só uns segundos.

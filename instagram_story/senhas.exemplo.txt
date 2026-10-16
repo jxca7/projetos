@@ -1,3 +1,0 @@
-# Reserva: se o cookie falhar, tenta logar com usuario e senha.
-# Uma conta por linha: usuario:senha  (o usuario = nome do arquivo de cookie)
-# usuario:senha
