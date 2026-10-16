@@ -428,7 +428,10 @@ async function fazerLogin(page, conta, nome) {
       await esperar(500);
       continue;
     }
-    if (await existeTexto(page, PASSOS[0].textos)) break;
+    // Para assim que aparecer a 1ª tela (Mudar) OU o Permitir (conta já conectada)
+    const primeiro = PASSOS[0].textos;
+    const permitir = PASSOS[PASSOS.length - 1].textos;
+    if ((await existeTexto(page, primeiro)) || (await existeTexto(page, permitir))) break;
     await esperar(300);
   }
   log(nome, 'Login feito.');
