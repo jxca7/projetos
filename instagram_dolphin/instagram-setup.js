@@ -246,7 +246,15 @@ async function clicarPorTexto(page, textos, timeout = 15000) {
 async function verificarLogado(page) {
   const url = page.url();
   if (url.includes('/accounts/login') || url.includes('/challenge') || url.includes('/suspended')) {
-    throw new Error(`Não entrou na conta (cookie expirado ou conta com checkpoint). URL: ${url}`);
+    const motivo = url.includes('/challenge')
+      ? 'conta caiu em verificação (checkpoint)'
+      : url.includes('/suspended')
+        ? 'conta suspensa'
+        : 'cookie expirado ou inválido (foi parar na tela de login)';
+    const err = new Error(`Não entrou na conta: ${motivo}`);
+    err.pular = true; // pula para a próxima conta, não deixa o Edge preso
+    err.destino = 'nao_logou';
+    throw err;
   }
 }
 
@@ -373,9 +381,9 @@ function avisarSemBio(nome) {
 }
 
 async function trocarFoto(page, nome, arquivo) {
-  // Espera a resposta do upload em vez de um tempo fixo
+  // Espera a resposta do upload, mas no MÁXIMO 6s (não trava se o Instagram não devolver nada)
   const upload = page
-    .waitForResponse((r) => /profile_pic|profile_picture/i.test(r.url()) && r.request().method() === 'POST', { timeout: 20000 })
+    .waitForResponse((r) => /profile_pic|profile_picture|upload/i.test(r.url()) && r.request().method() === 'POST', { timeout: 6000 })
     .catch(() => null);
 
   // 1ª tentativa: input de arquivo escondido na própria página de edição
@@ -384,16 +392,19 @@ async function trocarFoto(page, nome, arquivo) {
     await input.uploadFile(arquivo);
   } else {
     // 2ª tentativa: clicar em "Alterar foto" (e "Carregar foto", se abrir o menu) e responder o seletor de arquivo
-    const seletor = page.waitForFileChooser({ timeout: 20000 });
+    const seletor = page.waitForFileChooser({ timeout: 15000 });
     if (!(await clicarPorTexto(page, TXT_ALTERAR_FOTO))) throw new Error('Botão "Alterar foto" não encontrado');
-    await pausaHumana(800, 1500);
-    await clicarPorTexto(page, TXT_CARREGAR_FOTO, 3000); // só existe se a conta já tem foto
+    await pausaHumana(500, 1000);
+    await clicarPorTexto(page, TXT_CARREGAR_FOTO, 2000); // só existe se a conta já tem foto
     const chooser = await seletor;
     await chooser.accept([arquivo]);
   }
 
-  if (!(await upload)) await esperar(3000); // não vi a resposta: dá um tempinho para terminar
-  await pausaHumana(500, 1000);
+  // Dá um tempinho para o upload terminar; se a resposta chegar antes, segue na hora
+  const t0 = Date.now();
+  await upload;
+  const faltou = 2500 - (Date.now() - t0);
+  if (faltou > 0) await esperar(faltou);
   log(nome, 'Foto trocada.');
 }
 
@@ -436,6 +447,7 @@ async function trocarBio(page, nome, bio) {
   if (msgErro || (resposta && !resposta.ok())) {
     const err = new Error(`O Instagram recusou salvar o perfil${msgErro ? `: "${msgErro}"` : ''}`);
     err.pular = true;
+    err.destino = 'erro_salvar';
     throw err;
   }
 
@@ -566,11 +578,12 @@ async function main() {
       if (!err.jaMostrado) log(nome, `ERRO: ${err.message}`);
       if (err.semBio) semBioLista.push(nome);
       if (err.pular) {
-        // Separa em cookies/erro_salvar/ para não tentar de novo toda vez
-        const pasta = path.join(PASTA_COOKIES, 'erro_salvar');
+        // Separa numa subpasta para não tentar de novo toda vez
+        const sub = err.destino || 'erro_salvar';
+        const pasta = path.join(PASTA_COOKIES, sub);
         fs.mkdirSync(pasta, { recursive: true });
         fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(pasta, arquivo));
-        log(nome, 'Pulei para a próxima conta (cookie foi para cookies/erro_salvar/).');
+        log(nome, `Pulei para a próxima conta (cookie foi para cookies/${sub}/).`);
       }
       resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
