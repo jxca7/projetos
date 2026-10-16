@@ -25,10 +25,11 @@ const PASSOS = [
   },
   { nome: 'Criador de conteúdo', textos: ['Criador de conteúdo', 'Criador', 'Creator', 'Content creator', 'Content Creator'] },
   { nome: 'Avançar', textos: ['Avançar', 'Próximo', 'Next'] },
+  { nome: 'Avançar (2ª vez)', textos: ['Avançar', 'Próximo', 'Next'], opcional: true },
   { nome: 'Blog pessoal', textos: ['Blog pessoal', 'Personal blog', 'Personal Blog'], categoria: true },
   { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'] },
   { nome: 'Continuar', textos: ['Continuar', 'Continue'] },
-  { nome: 'Concluir', textos: ['Concluir', 'Concluído', 'Done', 'Finish', 'Complete'], opcional: true },
+  // Tela "fulano-IG está solicitando acesso a: conta. Ao selecionar Permitir, ..."
   { nome: 'Permitir', textos: ['Permitir', 'Allow', 'Allow access'] },
 ];
 
@@ -64,12 +65,16 @@ function lerContas() {
 }
 
 // Tira a conta do contas.txt e coloca no feitos.txt
-function marcarFeita(conta) {
+function moverConta(conta, destino) {
   const linhas = fs.readFileSync(ARQ_CONTAS, 'utf8').split(/\r?\n/);
   const resto = linhas.filter((l) => l.trim() !== conta.linha);
   fs.writeFileSync(ARQ_CONTAS, resto.join('\r\n'));
-  fs.appendFileSync(ARQ_FEITOS, `${conta.linha}\r\n`);
+  fs.appendFileSync(destino, `${conta.linha}\r\n`);
 }
+
+const marcarFeita = (conta) => moverConta(conta, ARQ_FEITOS);
+// Conta com 2FA vai para 2fa.txt, para não ficar tentando de novo
+const marcar2FA = (conta) => moverConta(conta, path.join(PASTA, '2fa.txt'));
 
 // ---------- Microsoft Edge ----------
 
@@ -324,6 +329,17 @@ async function clicarConectar(page, site, nome) {
   throw new Error('Cliquei em "Conectar Instagram" mas não abriu o login do Instagram');
 }
 
+async function pediu2FA(page) {
+  if (/two_factor|challenge|checkpoint|codeentry|auth_platform/i.test(page.url())) return true;
+  return page
+    .evaluate(() =>
+      /duas etapas|dois fatores|two-factor|2fa|código de segurança|código de confirmação|security code|confirmation code|insira o código|enter the code|digite o código|check your (email|phone|text)/i.test(
+        document.body.innerText,
+      ),
+    )
+    .catch(() => false);
+}
+
 async function fazerLogin(page, conta, nome) {
   const campoUsuario = await page
     .waitForSelector('input[name="username"], input[name="email"]', { visible: true, timeout: 30000 })
@@ -366,15 +382,16 @@ async function fazerLogin(page, conta, nome) {
     if (erro) throw new Error(`Login recusado: "${erro.trim()}"`);
   }
 
-  // Código de verificação / desafio: espera você resolver na mão
-  if (/challenge|two_factor|checkpoint|codeentry|auth_platform/i.test(page.url())) {
-    log(nome, '>>> O Instagram pediu verificação (código). Resolva na mão nessa janela do Edge. Estou esperando...');
-    const ate = Date.now() + ESPERA_MANUAL;
-    while (Date.now() < ate && /challenge|two_factor|checkpoint|codeentry|auth_platform/i.test(page.url())) await esperar(2000);
+  // Pediu 2FA / código de verificação: pula a conta
+  await pausaHumana(1500, 2500);
+  if (await pediu2FA(page)) {
+    const err = new Error('Pediu verificação em duas etapas (2FA), pulei a conta');
+    err.pediu2FA = true;
+    throw err;
   }
 
   // "Salvar informações de login?" -> Agora não
-  await clicarTexto(page, TXT_AGORA_NAO, 4000);
+  if (await clicarTexto(page, TXT_AGORA_NAO, 8000)) log(nome, 'Cliquei em "Agora não".');
   log(nome, 'Login feito.');
 }
 
@@ -467,7 +484,12 @@ async function main() {
         resultado.push(`✔ ${conta.usuario}`);
       } catch (err) {
         log(conta.usuario, `ERRO: ${err.message}`);
-        resultado.push(`✘ ${conta.usuario}: ${err.message}`);
+        if (err.pediu2FA) {
+          marcar2FA(conta);
+          resultado.push(`⏭ ${conta.usuario}: pediu 2FA (foi para o 2fa.txt)`);
+        } else {
+          resultado.push(`✘ ${conta.usuario}: ${err.message}`);
+        }
         if (!browser.connected) throw new Error('O Edge foi fechado');
       }
       if (i < contas.length - 1) await pausaHumana(8000, 15000);

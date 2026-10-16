@@ -16,21 +16,22 @@
 2. Clique duas vezes em **`rodar.bat`**.
 
 Para cada conta, o script:
-1. Abre o site, faz o login do site se ele pedir, fecha o pop-up da extensão ("Agora não")
-   e clica em **Conectar Instagram** duas vezes.
-2. Preenche o login e a senha do Instagram.
-3. Clica em **Mudar → Criador de conteúdo → Avançar → Blog pessoal → Concluir → Continuar → Concluir → Permitir**.
-4. Desloga do Instagram e passa para a próxima conta.
+1. Abre o site e fecha o pop-up da extensão ("Agora não").
+2. Clica em **+ Conectar Instagram**, no canto superior direito, e depois em **Conectar Instagram** na janelinha.
+3. Entra na conta do Instagram com o login e a senha.
+   **Se pedir 2FA (código), pula a conta**: ela vai para o `2fa.txt` e o script passa para a próxima.
+4. Clica em **Agora não → Mudar → Criador de conteúdo → Avançar → Avançar → Blog pessoal →
+   Concluir → Continuar → Permitir** (na tela "... está solicitando acesso a: ...").
+5. Desloga do Instagram e passa para a próxima conta.
 
-As contas que deram certo saem do `contas.txt` e vão para o `feitos.txt`. As que deram erro
-continuam no `contas.txt`, então é só rodar de novo. Se der erro, um print é salvo na pasta `erros/`.
+As contas que deram certo saem do `contas.txt` e vão para o `feitos.txt`. As que pediram 2FA vão
+para o `2fa.txt`. As que deram outro erro continuam no `contas.txt`, então é só rodar de novo.
+Se der erro, um print é salvo na pasta `erros/`.
 
 ## Se precisar fazer algo na mão
 Se o `site_login.txt` estiver vazio ou errado, o script espera até 5 minutos para você entrar no
 site na mão, na janela do Edge que ele abriu.
 
-Se o Instagram pedir **código de verificação**, digite na mão na janela do Edge. O script também
-espera até 5 minutos.
 
 ## Opcional
 - **Proxy:** crie um `proxy.txt` com `host:porta` ou `host:porta:usuario:senha`.
