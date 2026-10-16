@@ -329,6 +329,8 @@ def login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao):
         todos = ler_todos_cookies(arquivo_cookies)
         for jar in (cl.private.cookies, cl.public.cookies):
             for nome_c, valor in todos.items():
+                if nome_c == "sessionid":
+                    continue  # o login_by_sessionid já cuida do sessionid; não mexer
                 try:
                     jar.set(nome_c, unquote(valor), domain=".instagram.com")
                 except Exception:
