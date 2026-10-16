@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 PASTA = Path(__file__).resolve().parent
 PASTA_COOKIES = PASTA / "cookies"
 PASTA_FEITOS = PASTA_COOKIES / "feitos"
+PASTA_MORTOS = PASTA_COOKIES / "mortos"  # cookies desconectados/expirados
 PASTA_SESSOES = PASTA / "sessoes"
 EXT_FOTO = (".jpg", ".jpeg", ".png", ".webp")
 
@@ -270,8 +271,19 @@ def main():
             resultado.append(f"✔ {nome}")
         except Exception as err:
             msg = str(err) or type(err).__name__
-            log(nome, f"ERRO: {msg}")
-            resultado.append(f"✘ {nome}: {msg}")
+            # cookie desconectado/expirado: separa em cookies/mortos/ para não tentar de novo
+            morto = any(x in msg.lower() for x in ["logged_out", "login_required", "checkpoint", "não está logado", "csrf", "sessionid"])
+            if morto:
+                PASTA_MORTOS.mkdir(exist_ok=True)
+                try:
+                    shutil.move(str(arquivo), str(PASTA_MORTOS / arquivo.name))
+                except Exception:
+                    pass
+                log(nome, "ERRO: cookie desconectado/expirado — movido para cookies/mortos/")
+                resultado.append(f"✘ {nome}: cookie desconectado/expirado (cookies/mortos/)")
+            else:
+                log(nome, f"ERRO: {msg}")
+                resultado.append(f"✘ {nome}: {msg}")
             with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: {type(err).__name__}: {msg}\n")
 
