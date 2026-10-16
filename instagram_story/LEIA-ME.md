@@ -18,6 +18,16 @@ O script posta em uma conta de cada vez, esperando de 1 a 3 minutos entre elas. 
 deram certo vão para `cookies/feitos/`. As que deram erro continuam em `cookies/` e ficam
 anotadas no `erros.txt`.
 
+## Reserva: logar por usuário e senha
+Se o cookie de uma conta falhar (desconectado/expirado), o script pode tentar entrar com
+usuário e senha. Para isso:
+1. Renomeie `senhas.exemplo.txt` para **`senhas.txt`**.
+2. Escreva uma conta por linha, no formato `usuario:senha`.
+3. O **usuário tem que ser o mesmo nome do arquivo de cookie** (ex.: cookie `joao.json` -> `joao:senha`).
+
+Se o login por senha pedir 2FA ou cair em verificação, o script pula a conta e avisa.
+O `senhas.txt` tem senhas: ele fica bloqueado no `.gitignore` e NUNCA deve ir para o GitHub.
+
 ## Opcional
 - **Proxy:** crie um `proxy.txt` com `host:porta` ou `host:porta:usuario:senha`.
 

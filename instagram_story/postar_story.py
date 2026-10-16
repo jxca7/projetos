@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from instagrapi import Client
+from instagrapi.exceptions import BadPassword, ChallengeRequired, TwoFactorRequired
 from instagrapi.types import StoryLink
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -62,6 +63,28 @@ def ler_destaque():
     if not nome or nome.lower().startswith("nome do destaque"):
         return None
     return nome.splitlines()[0].strip()
+
+
+def ler_senhas():
+    """senhas.txt: uma linha por conta, no formato usuario:senha.
+
+    Serve de reserva: se o cookie falhar, o script tenta entrar com usuario e senha.
+    O usuario tem que ser igual ao NOME do arquivo de cookie (ex.: joao.json -> joao).
+    """
+    texto = ler_texto(PASTA / "senhas.txt")
+    mapa = {}
+    if not texto:
+        return mapa
+    for linha in texto.splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or ":" not in linha:
+            continue
+        i = linha.index(":")
+        usuario = linha[:i].strip()
+        senha = linha[i + 1:].strip()
+        if usuario and senha and not usuario.lower().startswith("usuario"):
+            mapa[usuario.lower()] = senha
+    return mapa
 
 
 def ler_link():
@@ -189,9 +212,7 @@ def montar_story(imagem, rotulo):
     return destino, area
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque):
-    sessionid = ler_sessionid(arquivo_cookies)
-
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senhas):
     cl = Client()
     cl.delay_range = [2, 5]
     if proxy:
@@ -203,8 +224,36 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque):
     if arquivo_sessao.exists():
         cl.load_settings(arquivo_sessao)
 
-    log(nome, "Entrando na conta...")
-    cl.login_by_sessionid(sessionid)
+    # 1º tenta pelo cookie; se falhar, tenta pelo usuario e senha do senhas.txt
+    senha = senhas.get(nome.lower())
+    logou = False
+    try:
+        log(nome, "Entrando pelo cookie...")
+        cl.login_by_sessionid(ler_sessionid(arquivo_cookies))
+        logou = True
+    except Exception as e:
+        if not senha:
+            raise
+        log(nome, f"Cookie não logou ({type(e).__name__}). Tentando com usuário e senha...")
+
+    if not logou:
+        # login limpo com usuario e senha
+        cl2 = Client()
+        cl2.delay_range = [2, 5]
+        if proxy:
+            cl2.set_proxy(proxy)
+        if arquivo_sessao.exists():
+            cl2.load_settings(arquivo_sessao)
+        try:
+            cl2.login(nome, senha)
+        except TwoFactorRequired:
+            raise RuntimeError("pediu verificação em duas etapas (2FA) no login por senha")
+        except ChallengeRequired:
+            raise RuntimeError("caiu em verificação (checkpoint) no login por senha")
+        except BadPassword:
+            raise RuntimeError("usuário ou senha incorretos no senhas.txt")
+        cl = cl2
+
     cl.dump_settings(arquivo_sessao)
     log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
@@ -254,6 +303,10 @@ def main():
     if destaque:
         print(f'Vai destacar em: "{destaque}"')
 
+    senhas = ler_senhas()
+    if senhas:
+        print(f"senhas.txt: {len(senhas)} conta(s) com usuário e senha de reserva.")
+
     proxy = ler_proxy()
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
@@ -265,7 +318,7 @@ def main():
     for i, arquivo in enumerate(arquivos):
         nome = arquivo.stem
         try:
-            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque)
+            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senhas)
             shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
