@@ -291,11 +291,53 @@ def novo_cliente(proxy):
     return cl
 
 
+def ler_todos_cookies(arquivo):
+    """Lê todos os cookies (nome -> valor). Usado para dar à API tudo que o navegador tinha."""
+    texto = arquivo.read_text(encoding="utf-8-sig").strip()
+    mapa = {}
+    if texto.startswith(("[", "{")):
+        try:
+            dados = json.loads(texto)
+        except json.JSONDecodeError:
+            return mapa
+        lista = dados if isinstance(dados, list) else dados.get("cookies", [])
+        for c in lista:
+            if c.get("name") and c.get("value") is not None:
+                mapa[c["name"]] = str(c["value"])
+    else:
+        for linha in texto.splitlines():
+            partes = linha.split("\t")
+            if len(partes) >= 7:
+                mapa[partes[5]] = partes[6]
+        if not mapa:
+            for par in texto.replace("\n", ";").split(";"):
+                n, _, v = par.strip().partition("=")
+                if n.strip():
+                    mapa[n.strip()] = v.strip()
+    return mapa
+
+
 def login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao):
     cl = novo_cliente(proxy)
     if arquivo_sessao.exists():
         cl.load_settings(arquivo_sessao)
     cl.login_by_sessionid(ler_sessionid(arquivo_cookies))
+
+    # Injeta TODOS os cookies do arquivo na sessão (mid, ig_did, csrftoken, ds_user_id, rur...).
+    # Ajuda o upload a não dar login_required quando só o sessionid não basta.
+    try:
+        todos = ler_todos_cookies(arquivo_cookies)
+        for jar in (cl.private.cookies, cl.public.cookies):
+            for nome_c, valor in todos.items():
+                try:
+                    jar.set(nome_c, unquote(valor), domain=".instagram.com")
+                except Exception:
+                    pass
+        if todos.get("csrftoken"):
+            cl.private.headers.update({"X-CSRFToken": unquote(todos["csrftoken"])})
+    except Exception:
+        pass
+
     return cl
 
 
