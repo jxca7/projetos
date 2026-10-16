@@ -212,47 +212,55 @@ def montar_story(imagem, rotulo):
     return destino, area
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senhas):
+def novo_cliente(proxy):
     cl = Client()
     cl.delay_range = [2, 5]
     if proxy:
         cl.set_proxy(proxy)
+    return cl
 
+
+def login_por_senha(nome, senha, proxy, arquivo_sessao):
+    cl = novo_cliente(proxy)
+    if arquivo_sessao.exists():
+        cl.load_settings(arquivo_sessao)
+    try:
+        cl.login(nome, senha)
+    except TwoFactorRequired:
+        raise RuntimeError("pediu verificação em duas etapas (2FA) no login por senha")
+    except ChallengeRequired:
+        raise RuntimeError("caiu em verificação (checkpoint) no login por senha")
+    except BadPassword:
+        raise RuntimeError("usuário ou senha incorretos no senhas.txt")
+    return cl
+
+
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
     # Guarda o "aparelho" de cada conta, para o Instagram ver sempre o mesmo celular
     PASTA_SESSOES.mkdir(exist_ok=True)
     arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
-    if arquivo_sessao.exists():
-        cl.load_settings(arquivo_sessao)
 
-    # 1º tenta pelo cookie; se falhar, tenta pelo usuario e senha do senhas.txt
-    senha = senhas.get(nome.lower())
-    logou = False
-    try:
-        log(nome, "Entrando pelo cookie...")
-        cl.login_by_sessionid(ler_sessionid(arquivo_cookies))
-        logou = True
-    except Exception as e:
-        if not senha:
-            raise
-        log(nome, f"Cookie não logou ({type(e).__name__}). Tentando com usuário e senha...")
-
-    if not logou:
-        # login limpo com usuario e senha
-        cl2 = Client()
-        cl2.delay_range = [2, 5]
-        if proxy:
-            cl2.set_proxy(proxy)
+    cl = None
+    # 1º tenta pelo cookie (se houver). Se falhar, tenta usuario e senha (se houver).
+    if arquivo_cookies:
+        cl_cookie = novo_cliente(proxy)
         if arquivo_sessao.exists():
-            cl2.load_settings(arquivo_sessao)
+            cl_cookie.load_settings(arquivo_sessao)
         try:
-            cl2.login(nome, senha)
-        except TwoFactorRequired:
-            raise RuntimeError("pediu verificação em duas etapas (2FA) no login por senha")
-        except ChallengeRequired:
-            raise RuntimeError("caiu em verificação (checkpoint) no login por senha")
-        except BadPassword:
-            raise RuntimeError("usuário ou senha incorretos no senhas.txt")
-        cl = cl2
+            log(nome, "Entrando pelo cookie...")
+            cl_cookie.login_by_sessionid(ler_sessionid(arquivo_cookies))
+            cl = cl_cookie
+        except Exception as e:
+            if not senha:
+                raise
+            log(nome, f"Cookie não logou ({type(e).__name__}). Tentando com usuário e senha...")
+
+    if cl is None:
+        if not senha:
+            raise RuntimeError("sem cookie e sem senha para essa conta")
+        if not arquivo_cookies:
+            log(nome, "Entrando com usuário e senha...")
+        cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
 
     cl.dump_settings(arquivo_sessao)
     log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
@@ -285,11 +293,6 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senhas):
 
 
 def main():
-    arquivos = sorted(f for f in PASTA_COOKIES.iterdir() if f.is_file() and f.suffix.lower() in (".json", ".txt"))
-    if not arquivos:
-        print("Nenhum arquivo de cookies na pasta cookies/. Nada a fazer.")
-        return
-
     imagem = achar_imagem()
     if not imagem:
         print("Coloque a imagem do story (story.jpg) nesta pasta.")
@@ -304,43 +307,65 @@ def main():
         print(f'Vai destacar em: "{destaque}"')
 
     senhas = ler_senhas()
-    if senhas:
-        print(f"senhas.txt: {len(senhas)} conta(s) com usuário e senha de reserva.")
-
     proxy = ler_proxy()
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
+
+    # Monta a lista de contas: cada cookie da pasta + cada usuário do senhas.txt.
+    # A chave é o nome (cookie = nome do arquivo; senha = usuário). Nomes iguais se juntam.
+    contas = {}  # nome -> arquivo de cookie (ou None)
+    for f in sorted(PASTA_COOKIES.iterdir()):
+        if f.is_file() and f.suffix.lower() in (".json", ".txt"):
+            contas[f.stem] = f
+    for usuario in senhas:
+        contas.setdefault(usuario, None)
+
+    if not contas:
+        print("Nenhuma conta. Coloque cookies em cookies/ ou contas no senhas.txt.")
+        return
+
+    com_cookie = sum(1 for a in contas.values() if a is not None)
+    com_senha = sum(1 for n in contas if senhas.get(n.lower()))
+    print(f"{len(contas)} conta(s): {com_cookie} com cookie, {com_senha} com senha de reserva.")
+    # Avisa quando o cookie não tem senha com o mesmo nome (a reserva não vai funcionar nessa)
+    sem_reserva = [n for n, a in contas.items() if a is not None and not senhas.get(n.lower())]
+    if senhas and sem_reserva:
+        print("AVISO: estes cookies NÃO têm senha de reserva com o mesmo nome no senhas.txt:")
+        print("       " + ", ".join(sem_reserva))
+        print("       (para a reserva funcionar, o nome do cookie tem que ser igual ao usuário)")
 
     imagem_jpg, area = montar_story(imagem, rotulo if link else None)
     PASTA_FEITOS.mkdir(exist_ok=True)
 
     resultado = []
-    for i, arquivo in enumerate(arquivos):
-        nome = arquivo.stem
+    itens = list(contas.items())
+    for i, (nome, arquivo) in enumerate(itens):
+        senha = senhas.get(nome.lower())
         try:
-            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senhas)
-            shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
+            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senha)
+            if arquivo is not None:
+                shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
         except Exception as err:
             msg = str(err) or type(err).__name__
-            # cookie desconectado/expirado: separa em cookies/mortos/ para não tentar de novo
-            morto = any(x in msg.lower() for x in ["logged_out", "login_required", "checkpoint", "não está logado", "csrf", "sessionid"])
-            if morto:
+            # cookie desconectado/expirado E sem senha de reserva: separa em cookies/mortos/
+            morto = any(x in msg.lower() for x in ["logged_out", "login_required", "checkpoint", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"])
+            if morto and arquivo is not None:
                 PASTA_MORTOS.mkdir(exist_ok=True)
                 try:
                     shutil.move(str(arquivo), str(PASTA_MORTOS / arquivo.name))
                 except Exception:
                     pass
-                log(nome, "ERRO: cookie desconectado/expirado — movido para cookies/mortos/")
-                resultado.append(f"✘ {nome}: cookie desconectado/expirado (cookies/mortos/)")
+                log(nome, "ERRO: cookie não logou — movido para cookies/mortos/")
+                resultado.append(f"✘ {nome}: cookie não logou (cookies/mortos/)")
             else:
                 log(nome, f"ERRO: {msg}")
                 resultado.append(f"✘ {nome}: {msg}")
             with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: {type(err).__name__}: {msg}\n")
 
-        if i < len(arquivos) - 1:
+        if i < len(itens) - 1:
             espera = random.randint(INTERVALO_MIN, INTERVALO_MAX)
             print(f"Esperando {espera}s antes da próxima conta...")
             time.sleep(espera)
