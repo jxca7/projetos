@@ -389,10 +389,10 @@ async function trocarBio(page, nome, bio) {
   await page.keyboard.press('Backspace');
   await pausaHumana(400, 900);
 
-  // Digita linha por linha para preservar quebras de linha
+  // Cola a bio (linha por linha, para manter as quebras de linha), como quem copia e cola
   const linhas = bio.split('\n');
   for (let i = 0; i < linhas.length; i++) {
-    await digitarHumano(campo, linhas[i]);
+    if (linhas[i]) await page.keyboard.sendCharacter(linhas[i]);
     if (i < linhas.length - 1) {
       await page.keyboard.down('Shift');
       await page.keyboard.press('Enter');
@@ -406,20 +406,27 @@ async function trocarBio(page, nome, bio) {
     .catch(() => null);
   if (!(await clicarPorTexto(page, TXT_ENVIAR))) throw new Error('Botão "Enviar" não encontrado');
   const resposta = await salvou;
-  await esperar(resposta ? 800 : 2000);
 
-  // O Instagram às vezes mostra "There was a problem saving your profile": tenta mais uma vez
-  if ((resposta && !resposta.ok()) || (await textoDoErro(page))) {
-    log(nome, 'O Instagram deu erro ao salvar, tentando de novo em 10s...');
-    await esperar(10000);
-    if (!(await clicarPorTexto(page, TXT_TENTAR_DE_NOVO, 3000))) await clicarPorTexto(page, TXT_ENVIAR, 3000);
-    if (await apareceuErro(page)) {
-      const msg = await textoDoErro(page);
-      throw new Error(`O Instagram recusou salvar o perfil: "${msg}"`);
-    }
+  // "There was a problem saving your profile": não insiste, pula para a próxima conta
+  let msgErro = null;
+  const ateErro = Date.now() + (resposta ? 1500 : 4000);
+  while (!msgErro && Date.now() < ateErro) {
+    msgErro = await textoDoErro(page).catch(() => null);
+    if (!msgErro) await esperar(250);
+  }
+  if (msgErro || (resposta && !resposta.ok())) {
+    const err = new Error(`O Instagram recusou salvar o perfil${msgErro ? `: "${msgErro}"` : ''}`);
+    err.pular = true;
+    throw err;
   }
 
-  // Confere recarregando a página
+  // O Instagram confirmou que salvou: não precisa recarregar para conferir
+  if (resposta && resposta.ok()) {
+    log(nome, 'Bio trocada.');
+    return true;
+  }
+
+  // Não vi a confirmação: confere recarregando a página
   await abrirEditar(page);
   const salva = await page
     .$eval('textarea#pepBio, textarea[name="biography"], textarea', (t) => t.value)
@@ -457,9 +464,7 @@ async function processarConta(nome, arquivoCookies, proxy) {
 
     if (!foto) log(nome, 'Nenhuma foto .jpg/.png na pasta, pulando a foto.');
     if (foto) {
-      await trocarFoto(page, nome, foto);
-      await abrirEditar(page);
-      await pausaHumana(500, 1000);
+      await trocarFoto(page, nome, foto); // a bio fica na mesma página: não precisa recarregar
     }
 
     let bioConfirmada = false;
@@ -484,6 +489,7 @@ async function processarConta(nome, arquivoCookies, proxy) {
     } catch {}
     log(nome, `ERRO: ${err.message}`);
     err.jaMostrado = true;
+    if (err.pular) throw err; // erro conhecido: fecha o Edge e vai para a próxima conta
     if (page) {
       const bioAtual = await lerBioAtual(page);
       if (bioAtual !== null && !bioAtual.trim()) {
@@ -529,6 +535,13 @@ async function main() {
     } catch (err) {
       if (!err.jaMostrado) log(nome, `ERRO: ${err.message}`);
       if (err.semBio) semBioLista.push(nome);
+      if (err.pular) {
+        // Separa em cookies/erro_salvar/ para não tentar de novo toda vez
+        const pasta = path.join(PASTA_COOKIES, 'erro_salvar');
+        fs.mkdirSync(pasta, { recursive: true });
+        fs.renameSync(path.join(PASTA_COOKIES, arquivo), path.join(pasta, arquivo));
+        log(nome, 'Pulei para a próxima conta (cookie foi para cookies/erro_salvar/).');
+      }
       resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
     if (i < arquivos.length - 1) await esperar(3000 + Math.random() * 3000);
