@@ -26,6 +26,11 @@ deram erro continuam em `cookies/`, então é só rodar de novo.
 Se der erro, aparece a mensagem na tela e um print é salvo na pasta `erros/`.
 
 ## Testar os cookies antes (sem alterar nada)
-Clique duas vezes em **`testar.bat`**. Ele abre cada cookie da pasta `cookies/` (usando o proxy),
-diz quais logaram e quais falharam, e salva um resumo em `resultado_cookies.txt`.
-Não muda foto, bio nem nada nas contas. Para ver as janelas abrindo, rode `testar.bat --ver`.
+1. Coloque os cookies para testar na pasta **`testar/`** (não na `cookies/`).
+2. Clique duas vezes em **`testar.bat`**.
+
+Ele abre cada cookie usando o proxy e, **sem mudar nada nas contas**, separa:
+- os que logaram vão para **`cookies_ok/`** (prontos para usar: é só copiar para `cookies/` e rodar);
+- os que falharam vão para **`testar/falharam/`**.
+
+Também salva um resumo em `resultado_cookies.txt`. Para ver as janelas abrindo, rode `testar.bat --ver`.

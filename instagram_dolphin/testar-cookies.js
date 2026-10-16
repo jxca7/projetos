@@ -7,7 +7,9 @@ const path = require('path');
 const puppeteer = require('puppeteer-core');
 
 const PASTA = __dirname;
-const PASTA_COOKIES = path.join(PASTA, 'cookies');
+const PASTA_ENTRADA = path.join(PASTA, 'testar');       // você coloca os cookies para testar aqui
+const PASTA_OK = path.join(PASTA, 'cookies_ok');        // os que logaram vão para cá
+const PASTA_FALHOU = path.join(PASTA_ENTRADA, 'falharam'); // os que não logaram vão para cá
 const URL_EDITAR = 'https://www.instagram.com/accounts/edit/';
 const ESCONDER = process.argv.includes('--ver') ? false : true; // por padrão janela escondida
 
@@ -126,11 +128,12 @@ async function testarUm(browser, proxy, cookies) {
 }
 
 async function main() {
+  fs.mkdirSync(PASTA_ENTRADA, { recursive: true });
   const arquivos = fs
-    .readdirSync(PASTA_COOKIES)
-    .filter((f) => /\.(json|txt)$/i.test(f) && fs.statSync(path.join(PASTA_COOKIES, f)).isFile());
+    .readdirSync(PASTA_ENTRADA)
+    .filter((f) => /\.(json|txt)$/i.test(f) && fs.statSync(path.join(PASTA_ENTRADA, f)).isFile());
   if (!arquivos.length) {
-    console.log('Nenhum cookie na pasta cookies/.');
+    console.log('Coloque os cookies para testar na pasta testar/ e rode de novo.');
     return;
   }
 
@@ -150,20 +153,28 @@ async function main() {
     for (const arquivo of arquivos) {
       const nome = path.parse(arquivo).name;
       try {
-        const cookies = lerCookies(path.join(PASTA_COOKIES, arquivo));
+        const cookies = lerCookies(path.join(PASTA_ENTRADA, arquivo));
         const faltando = ['ds_user_id', 'csrftoken'].filter((n) => !cookies.some((c) => c.name === n));
         const r = await testarUm(browser, proxy, cookies);
         if (r.ok) {
           console.log(`✔ ${nome}${r.usuario ? ` (@${r.usuario})` : ''} — LOGOU`);
           bons.push(nome);
+          fs.mkdirSync(PASTA_OK, { recursive: true });
+          fs.renameSync(path.join(PASTA_ENTRADA, arquivo), path.join(PASTA_OK, arquivo));
         } else {
           const extra = faltando.length ? ` [faltam: ${faltando.join(', ')}]` : '';
           console.log(`✘ ${nome} — ${r.motivo}${extra}`);
           ruins.push(`${nome}: ${r.motivo}${extra}`);
+          fs.mkdirSync(PASTA_FALHOU, { recursive: true });
+          fs.renameSync(path.join(PASTA_ENTRADA, arquivo), path.join(PASTA_FALHOU, arquivo));
         }
       } catch (err) {
         console.log(`✘ ${nome} — ${err.message}`);
         ruins.push(`${nome}: ${err.message}`);
+        try {
+          fs.mkdirSync(PASTA_FALHOU, { recursive: true });
+          fs.renameSync(path.join(PASTA_ENTRADA, arquivo), path.join(PASTA_FALHOU, arquivo));
+        } catch {}
       }
     }
   } finally {
@@ -171,7 +182,7 @@ async function main() {
   }
 
   console.log(`\n===== RESULTADO =====`);
-  console.log(`Logaram: ${bons.length}   |   Falharam: ${ruins.length}`);
+  console.log(`Logaram: ${bons.length} (em cookies_ok/)   |   Falharam: ${ruins.length} (em testar/falharam/)`);
   const relatorio = [`Logaram (${bons.length}): ${bons.join(', ')}`, '', `Falharam (${ruins.length}):`, ...ruins.map((r) => '  ' + r)].join('\n');
   fs.writeFileSync(path.join(PASTA, 'resultado_cookies.txt'), relatorio);
   console.log('Detalhes salvos em resultado_cookies.txt');
