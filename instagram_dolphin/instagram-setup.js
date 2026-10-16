@@ -32,8 +32,36 @@ const TXT_SEM_CONVITES = ['não tem convites', 'nenhum convite', 'no tester invi
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 // VELOCIDADE: multiplica todas as pausas. 1 = devagar (mais "humano"), 0.3 = rápido.
-const VELOCIDADE = 0.3;
+const VELOCIDADE = 0.6;
 const pausaHumana = (min = 800, max = 2000) => esperar((min + Math.random() * (max - min)) * VELOCIDADE);
+
+// ---------- jeito humano ----------
+
+// Move o mouse até um ponto aleatório do elemento (em vários passos) e clica, como uma pessoa
+async function cliqueHumano(page, el) {
+  try {
+    await el.evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    const box = await el.boundingBox();
+    if (!box) return await el.click();
+    const x = box.x + box.width * (0.3 + Math.random() * 0.4);
+    const y = box.y + box.height * (0.3 + Math.random() * 0.4);
+    await page.mouse.move(x, y, { steps: 8 + Math.floor(Math.random() * 15) });
+    await esperar(60 + Math.random() * 180);
+    await page.mouse.down();
+    await esperar(40 + Math.random() * 90);
+    await page.mouse.up();
+  } catch {
+    await el.click().catch(() => {});
+  }
+}
+
+// Digita letra por letra com ritmo variado e uma pausinha de vez em quando
+async function digitarHumano(el, texto) {
+  for (const letra of texto) {
+    await el.type(letra);
+    await esperar(Math.random() < 0.06 ? 250 + Math.random() * 350 : 40 + Math.random() * 110);
+  }
+}
 
 const SELETOR_BIO = 'textarea#pepBio, textarea[name="biography"], textarea';
 
@@ -206,7 +234,7 @@ async function clicarPorTexto(page, textos, timeout = 15000) {
   while (Date.now() < fim) {
     const el = await acharPorTexto(page, textos);
     if (el) {
-      await el.click();
+      await cliqueHumano(page, el);
       return true;
     }
     await esperar(500);
@@ -257,7 +285,7 @@ async function clicarTexto(page, textos, timeout = 10000) {
     if (el) {
       await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
       await pausaHumana(300, 700);
-      await el.click();
+      await cliqueHumano(page, el);
       return true;
     }
     await esperar(500);
@@ -354,7 +382,7 @@ async function trocarBio(page, nome, bio) {
   if ([...bio].length > 150) log(nome, `AVISO: a bio tem ${[...bio].length} caracteres, o limite do Instagram é 150.`);
 
   const campo = await page.waitForSelector('textarea#pepBio, textarea[name="biography"], textarea', { timeout: 20000 });
-  await campo.click();
+  await cliqueHumano(page, campo);
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyA');
   await page.keyboard.up('Control');
@@ -364,7 +392,7 @@ async function trocarBio(page, nome, bio) {
   // Digita linha por linha para preservar quebras de linha
   const linhas = bio.split('\n');
   for (let i = 0; i < linhas.length; i++) {
-    await campo.type(linhas[i], { delay: 10 + Math.random() * 20 });
+    await digitarHumano(campo, linhas[i]);
     if (i < linhas.length - 1) {
       await page.keyboard.down('Shift');
       await page.keyboard.press('Enter');
@@ -503,7 +531,7 @@ async function main() {
       if (err.semBio) semBioLista.push(nome);
       resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
-    if (i < arquivos.length - 1) await esperar(1000 + Math.random() * 1000);
+    if (i < arquivos.length - 1) await esperar(3000 + Math.random() * 3000);
   }
 
   console.log('\n===== RESUMO =====');

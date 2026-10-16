@@ -38,8 +38,36 @@ const PASSOS = [
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 // VELOCIDADE: multiplica todas as pausas. 1 = devagar (mais "humano"), 0.3 = rápido.
-const VELOCIDADE = 0.3;
+const VELOCIDADE = 0.6;
 const pausaHumana = (min = 800, max = 2000) => esperar((min + Math.random() * (max - min)) * VELOCIDADE);
+
+// ---------- jeito humano ----------
+
+// Move o mouse até um ponto aleatório do elemento (em vários passos) e clica, como uma pessoa
+async function cliqueHumano(page, el) {
+  try {
+    await el.evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    const box = await el.boundingBox();
+    if (!box) return await el.click();
+    const x = box.x + box.width * (0.3 + Math.random() * 0.4);
+    const y = box.y + box.height * (0.3 + Math.random() * 0.4);
+    await page.mouse.move(x, y, { steps: 8 + Math.floor(Math.random() * 15) });
+    await esperar(60 + Math.random() * 180);
+    await page.mouse.down();
+    await esperar(40 + Math.random() * 90);
+    await page.mouse.up();
+  } catch {
+    await el.click().catch(() => {});
+  }
+}
+
+// Digita letra por letra com ritmo variado e uma pausinha de vez em quando
+async function digitarHumano(el, texto) {
+  for (const letra of texto) {
+    await el.type(letra);
+    await esperar(Math.random() < 0.06 ? 250 + Math.random() * 350 : 40 + Math.random() * 110);
+  }
+}
 
 function log(conta, msg) {
   const hora = new Date().toLocaleTimeString('pt-BR');
@@ -167,7 +195,7 @@ async function clicarTexto(page, textos, timeout = 15000) {
     const el = await acharTexto(page, textos).catch(() => null);
     if (el) {
       await pausaHumana(400, 900);
-      await el.click().catch(() => {});
+      await cliqueHumano(page, el);
       return true;
     }
     await esperar(250);
@@ -221,12 +249,12 @@ async function entrarNoSite(page, site, nome) {
 
   log(nome, 'Entrando no site...');
   await campoEmail.click({ clickCount: 3 });
-  await campoEmail.type(login.email, { delay: 40 });
+  await digitarHumano(campoEmail, login.email);
   await campoSenha.click({ clickCount: 3 });
-  await campoSenha.type(login.senha, { delay: 40 });
+  await digitarHumano(campoSenha, login.senha);
   await pausaHumana(500, 1000);
   const botao = await page.$('button[type="submit"]');
-  if (botao) await botao.click();
+  if (botao) await cliqueHumano(page, botao);
   else if (!(await clicarTexto(page, TXT_ENTRAR, 5000))) await page.keyboard.press('Enter');
 
   // Espera o login do site terminar e volta para a página do site.txt
@@ -250,7 +278,7 @@ async function clicarPrimeiroConectar(page, timeout) {
     if (el) {
       await el.evaluate((e) => (e.closest('button, a, [role="button"]') || e).setAttribute('data-conectar-1', '1'));
       await pausaHumana(400, 900);
-      await el.click().catch(() => {});
+      await cliqueHumano(page, el);
       return true;
     }
     await esperar(250);
@@ -281,7 +309,7 @@ async function clicarSegundoConectar(page, timeout) {
     const el = handle && handle.asElement();
     if (el) {
       await pausaHumana(400, 900);
-      await el.click().catch(() => {});
+      await cliqueHumano(page, el);
       return true;
     }
     await esperar(250);
@@ -358,14 +386,14 @@ async function fazerLogin(page, conta, nome) {
 
   log(nome, 'Preenchendo login e senha...');
   await campoUsuario.click({ clickCount: 3 });
-  await campoUsuario.type(conta.usuario, { delay: 15 + Math.random() * 20 });
+  await digitarHumano(campoUsuario, conta.usuario);
   await pausaHumana(500, 1200);
   await campoSenha.click({ clickCount: 3 });
-  await campoSenha.type(conta.senha, { delay: 15 + Math.random() * 20 });
+  await digitarHumano(campoSenha, conta.senha);
   await pausaHumana(600, 1300);
 
   const botao = await page.$('button[type="submit"]');
-  if (botao) await botao.click();
+  if (botao) await cliqueHumano(page, botao);
   else if (!(await clicarTexto(page, TXT_ENTRAR, 5000))) await page.keyboard.press('Enter');
 
   // Espera sair da tela de login
@@ -395,7 +423,7 @@ async function fazerLogin(page, conta, nome) {
     }
     const agoraNao = await acharTexto(page, TXT_AGORA_NAO).catch(() => null);
     if (agoraNao) {
-      await agoraNao.click().catch(() => {});
+      await cliqueHumano(page, agoraNao);
       log(nome, 'Cliquei em "Agora não".');
       await esperar(500);
       continue;
@@ -439,7 +467,7 @@ async function passarTelas(page, nome) {
         if (busca) {
           buscou = true;
           await busca.click({ clickCount: 3 });
-          await busca.type(passo.textos[0], { delay: 20 });
+          await digitarHumano(busca, passo.textos[0]);
           continue;
         }
       }
@@ -468,7 +496,7 @@ async function passarTelas(page, nome) {
     if (alvo > i) log(nome, `"${passo.nome}" não apareceu, seguindo para "${PASSOS[alvo].nome}".`);
 
     await pausaHumana(300, 700);
-    await el.click().catch(() => {});
+    await cliqueHumano(page, el);
     log(nome, `Cliquei em "${PASSOS[alvo].nome}".`);
     // Opções (Criador, Blog pessoal) continuam na tela; botões de avançar somem quando a tela muda
     if (PASSOS[alvo].selecao || PASSOS[alvo].categoria) await pausaHumana(300, 600);
@@ -538,7 +566,7 @@ async function main() {
         }
         if (!browser.connected) throw new Error('O Edge foi fechado');
       }
-      if (i < contas.length - 1) await esperar(1000 + Math.random() * 1000);
+      if (i < contas.length - 1) await esperar(3000 + Math.random() * 3000);
     }
   } finally {
     console.log('\n===== RESUMO =====');
