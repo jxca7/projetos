@@ -319,48 +319,23 @@ def login_por_senha(nome, senha, proxy, arquivo_sessao):
     return cl
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, modo):
-    # Guarda o "aparelho" de cada conta, para o Instagram ver sempre o mesmo celular
-    PASTA_SESSOES.mkdir(exist_ok=True)
-    arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
+def login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao):
+    cl = novo_cliente(proxy)
+    if arquivo_sessao.exists():
+        cl.load_settings(arquivo_sessao)
+    cl.login_by_sessionid(ler_sessionid(arquivo_cookies))
+    return cl
 
-    # modo 'senha' força login por usuário e senha; modo 'cookie' só cookie; 'auto' = cookie e, se falhar, senha
-    usar_cookie = arquivo_cookies is not None and modo != "senha"
-    pode_senha = senha is not None and modo != "cookie"
 
-    cl = None
-    if usar_cookie:
-        cl_cookie = novo_cliente(proxy)
-        if arquivo_sessao.exists():
-            cl_cookie.load_settings(arquivo_sessao)
-        try:
-            log(nome, "Entrando pelo cookie...")
-            cl_cookie.login_by_sessionid(ler_sessionid(arquivo_cookies))
-            cl = cl_cookie
-        except Exception as e:
-            if not pode_senha:
-                raise
-            log(nome, f"Cookie não logou ({type(e).__name__}). Tentando com usuário e senha...")
-
-    if cl is None:
-        if not pode_senha:
-            raise RuntimeError("sem cookie e sem senha para essa conta (confira o modo.txt)")
-        if not usar_cookie:
-            log(nome, "Entrando com usuário e senha...")
-        cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
-
+def enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao):
     # "Esquenta" a sessão: pega o feed para a biblioteca guardar os tokens das ações privadas
-    # (sem isso, criar destaque costuma dar login_required)
     try:
         cl.get_timeline_feed()
     except Exception:
         pass
-
     cl.dump_settings(arquivo_sessao)
-    log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
-    # A partir daqui o login JÁ deu certo. Se der erro, não é cookie morto: é o Instagram
-    # recusando a AÇÃO (geralmente IP). Marcamos como FalhaAposLogin para não jogar em mortos.
+    # Login JÁ deu certo. Se der erro aqui, é o Instagram recusando a AÇÃO (geralmente IP).
     try:
         links = []
         if link:
@@ -375,7 +350,6 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, mo
         log(nome, "AVISO: o story foi postado, mas o Instagram não devolveu a figurinha de link. Confira no app.")
     log(nome, f"Story postado (id {story.pk}).")
 
-    # Destacar: coloca o story num Destaque do perfil (tenta algumas vezes, o story demora a ficar pronto)
     if destaque:
         sid = str(story.pk)
         ok = False
@@ -397,6 +371,49 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, mo
                 log(nome, f"Destaque falhou (tentativa {tentativa + 1}/3): {e}")
         if not ok:
             log(nome, f"AVISO: não consegui destacar ({ultimo_erro}). O story foi postado mesmo assim.")
+
+
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, modo):
+    PASTA_SESSOES.mkdir(exist_ok=True)
+    arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
+
+    # Métodos a tentar, nesta ordem. Se um falhar (no login OU ao postar), tenta o próximo.
+    # modo 'cookie' só cookie; 'senha' só senha; 'auto' = os dois (cookie e, se falhar, senha).
+    metodos = []
+    if arquivo_cookies is not None and modo != "senha":
+        metodos.append("cookie")
+    if senha is not None and modo != "cookie":
+        metodos.append("senha")
+    if not metodos:
+        raise RuntimeError("sem cookie e sem senha para essa conta (confira o modo.txt)")
+
+    ultimo_erro = None
+    for metodo in metodos:
+        try:
+            if metodo == "cookie":
+                log(nome, "Entrando pelo cookie...")
+                cl = login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao)
+            else:
+                log(nome, "Entrando com usuário e senha...")
+                cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
+            log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
+        except Exception as e:
+            ultimo_erro = e
+            # verificação no login por senha: não adianta repetir; se ainda houver outro método, tenta
+            log(nome, f"Login por {metodo} falhou ({type(e).__name__}).")
+            continue
+
+        # login ok -> tenta postar; se a postagem falhar, tenta o próximo método (ex.: cookie -> senha)
+        try:
+            enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao)
+            return  # sucesso
+        except FalhaAposLogin as e:
+            ultimo_erro = e
+            if metodo != metodos[-1]:
+                log(nome, "Vou tentar o outro jeito de entrar...")
+            continue
+
+    raise ultimo_erro
 
 
 def main():

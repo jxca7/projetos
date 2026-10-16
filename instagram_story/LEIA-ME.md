@@ -22,7 +22,8 @@ anotadas no `erros.txt`.
 No arquivo **`modo.txt`** você decide como o script entra nas contas:
 - **`cookie`** — usa só os cookies da pasta `cookies/`.
 - **`senha`** — usa só usuário e senha do `senhas.txt` (ignora os cookies).
-- **`auto`** — tenta o cookie e, se falhar, tenta usuário e senha. (padrão)
+- **`auto`** — tenta os dois: se o cookie não entrar (ou não conseguir postar), tenta usuário e senha,
+  e vice-versa. (padrão)
 
 Se o `modo.txt` estiver vazio, usa `auto`.
 
