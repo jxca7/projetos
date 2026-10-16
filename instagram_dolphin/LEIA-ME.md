@@ -24,3 +24,8 @@ deram erro continuam em `cookies/`, então é só rodar de novo.
   e o `foto.jpg` padrão.
 
 Se der erro, aparece a mensagem na tela e um print é salvo na pasta `erros/`.
+
+## Testar os cookies antes (sem alterar nada)
+Clique duas vezes em **`testar.bat`**. Ele abre cada cookie da pasta `cookies/` (usando o proxy),
+diz quais logaram e quais falharam, e salva um resumo em `resultado_cookies.txt`.
+Não muda foto, bio nem nada nas contas. Para ver as janelas abrindo, rode `testar.bat --ver`.

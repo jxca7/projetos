@@ -6,7 +6,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const BASE = 'https://raw.githubusercontent.com/jxca7/projetos/claude/great-fermat-rymemy/instagram_dolphin/';
-const ARQUIVOS = ['instagram-setup.js', 'atualizar.js', 'package.json', 'LEIA-ME.md'];
+const ARQUIVOS = ['instagram-setup.js', 'testar-cookies.js', 'atualizar.js', 'package.json', 'LEIA-ME.md'];
 
 async function main() {
   const mudou = [];
