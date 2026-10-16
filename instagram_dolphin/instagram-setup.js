@@ -484,7 +484,15 @@ async function processarConta(nome, arquivoCookies, proxy) {
     page = (await browser.pages())[0] || (await browser.newPage());
     if (proxy?.usuario) await page.authenticate({ username: proxy.usuario, password: proxy.senha || '' });
 
+    // Avisa se faltam cookies importantes (só o sessionid não basta para SALVAR; cai no login)
+    const faltando = ['ds_user_id', 'csrftoken'].filter((n) => !cookies.some((c) => c.name === n));
+    if (faltando.length) {
+      log(nome, `AVISO: faltam os cookies ${faltando.join(' e ')}. Com só o sessionid o Instagram costuma desconectar ao salvar.`);
+    }
+
     log(nome, 'Colocando cookies...');
+    // Coloca os cookies ANTES de abrir o Instagram, para a 1ª página já carregar logada
+    await page.setCookie(...cookies);
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
     await page.setCookie(...cookies);
     await pausaHumana(500, 1000);
