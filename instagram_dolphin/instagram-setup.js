@@ -462,6 +462,16 @@ async function processarConta(nome, arquivoCookies, proxy) {
     await verificarLogado(page);
     await pausaHumana(500, 1000);
 
+    // 1º o convite do testador: assim um erro na foto/bio não impede de aceitar
+    let conviteErro = null;
+    try {
+      await aceitarConvitesTestador(page, nome);
+    } catch (e) {
+      conviteErro = e.message;
+      log(nome, `AVISO: não consegui aceitar o convite: ${e.message}`);
+    }
+    await abrirEditar(page);
+
     if (!foto) log(nome, 'Nenhuma foto .jpg/.png na pasta, pulando a foto.');
     if (foto) {
       await trocarFoto(page, nome, foto); // a bio fica na mesma página: não precisa recarregar
@@ -471,13 +481,11 @@ async function processarConta(nome, arquivoCookies, proxy) {
     if (bio) bioConfirmada = await trocarBio(page, nome, bio);
     else log(nome, 'bio.txt vazio, pulando a bio.');
 
-    await aceitarConvitesTestador(page, nome);
-
     // Se a bio já foi conferida ao salvar, não precisa recarregar de novo
     const bioAtual = bioConfirmada ? bio : await lerBioAtual(page);
     const semBio = bioAtual !== null && !bioAtual.trim();
     if (semBio) avisarSemBio(nome);
-    return { semBio };
+    return { semBio, conviteErro };
   } catch (err) {
     // Salva print da tela para ajudar a ver o que deu errado
     try {
@@ -522,8 +530,11 @@ async function main() {
   for (const [i, arquivo] of arquivos.entries()) {
     const nome = path.parse(arquivo).name;
     try {
-      const { semBio } = await processarConta(nome, path.join(PASTA_COOKIES, arquivo), proxy);
-      if (semBio) {
+      const { semBio, conviteErro } = await processarConta(nome, path.join(PASTA_COOKIES, arquivo), proxy);
+      if (conviteErro) {
+        // Fica em cookies/ para tentar de novo na próxima vez
+        resultado.push(`⚠ ${nome}: foto/bio OK, mas o convite do testador falhou: ${conviteErro}`);
+      } else if (semBio) {
         // Fica em cookies/ para tentar de novo na próxima vez
         semBioLista.push(nome);
         resultado.push(`⚠ ${nome}: terminou, mas o perfil está SEM BIO`);
