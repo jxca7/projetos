@@ -76,6 +76,19 @@ def ler_destaque():
     return nome.splitlines()[0].strip()
 
 
+def ler_modo():
+    """modo.txt: 'cookie' (só cookie), 'senha' (só usuário e senha) ou 'auto' (cookie e, se falhar, senha).
+
+    Vazio ou ausente = 'auto'.
+    """
+    texto = (ler_texto(PASTA / "modo.txt") or "").strip().lower()
+    if texto.startswith("cookie"):
+        return "cookie"
+    if texto.startswith("senha") or texto.startswith("login"):
+        return "senha"
+    return "auto"
+
+
 def ler_senhas():
     """senhas.txt: uma linha por conta, no formato usuario:senha.
 
@@ -303,14 +316,17 @@ def login_por_senha(nome, senha, proxy, arquivo_sessao):
     return cl
 
 
-def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
+def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha, modo):
     # Guarda o "aparelho" de cada conta, para o Instagram ver sempre o mesmo celular
     PASTA_SESSOES.mkdir(exist_ok=True)
     arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
 
+    # modo 'senha' força login por usuário e senha; modo 'cookie' só cookie; 'auto' = cookie e, se falhar, senha
+    usar_cookie = arquivo_cookies is not None and modo != "senha"
+    pode_senha = senha is not None and modo != "cookie"
+
     cl = None
-    # 1º tenta pelo cookie (se houver). Se falhar, tenta usuario e senha (se houver).
-    if arquivo_cookies:
+    if usar_cookie:
         cl_cookie = novo_cliente(proxy)
         if arquivo_sessao.exists():
             cl_cookie.load_settings(arquivo_sessao)
@@ -319,14 +335,14 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
             cl_cookie.login_by_sessionid(ler_sessionid(arquivo_cookies))
             cl = cl_cookie
         except Exception as e:
-            if not senha:
+            if not pode_senha:
                 raise
             log(nome, f"Cookie não logou ({type(e).__name__}). Tentando com usuário e senha...")
 
     if cl is None:
-        if not senha:
-            raise RuntimeError("sem cookie e sem senha para essa conta")
-        if not arquivo_cookies:
+        if not pode_senha:
+            raise RuntimeError("sem cookie e sem senha para essa conta (confira o modo.txt)")
+        if not usar_cookie:
             log(nome, "Entrando com usuário e senha...")
         cl = login_por_senha(nome, senha, proxy, arquivo_sessao)
 
@@ -395,18 +411,23 @@ def main():
         print(f'Vai destacar em: "{destaque}"')
 
     senhas = ler_senhas()
+    modo = ler_modo()
+    nomes_modo = {"cookie": "só cookie", "senha": "só usuário e senha", "auto": "cookie e, se falhar, senha"}
+    print(f"Modo: {modo} ({nomes_modo[modo]}).")
     proxy = ler_proxy()
     if proxy:
         print(f"Usando proxy {urlparse(proxy).hostname}:{urlparse(proxy).port}")
 
-    # Monta a lista de contas: cada cookie da pasta + cada usuário do senhas.txt.
-    # A chave é o nome (cookie = nome do arquivo; senha = usuário). Nomes iguais se juntam.
+    # Monta a lista de contas conforme o modo:
+    #  - cookie: só os cookies da pasta;  senha: só os usuários do senhas.txt;  auto: os dois.
     contas = {}  # nome -> arquivo de cookie (ou None)
-    for f in sorted(PASTA_COOKIES.iterdir()):
-        if f.is_file() and f.suffix.lower() in (".json", ".txt"):
-            contas[f.stem] = f
-    for usuario in senhas:
-        contas.setdefault(usuario, None)
+    if modo != "senha":
+        for f in sorted(PASTA_COOKIES.iterdir()):
+            if f.is_file() and f.suffix.lower() in (".json", ".txt"):
+                contas[f.stem] = f
+    if modo != "cookie":
+        for usuario in senhas:
+            contas.setdefault(usuario, None)
 
     if not contas:
         print("Nenhuma conta. Coloque cookies em cookies/ ou contas no senhas.txt.")
@@ -430,7 +451,7 @@ def main():
     for i, (nome, arquivo) in enumerate(itens):
         senha = senhas.get(nome.lower())
         try:
-            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senha)
+            postar(nome, arquivo, imagem_jpg, link, area, proxy, destaque, senha, modo)
             if arquivo is not None:
                 shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")

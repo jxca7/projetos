@@ -18,6 +18,14 @@ O script posta em uma conta de cada vez, esperando de 1 a 3 minutos entre elas. 
 deram certo vão para `cookies/feitos/`. As que deram erro continuam em `cookies/` e ficam
 anotadas no `erros.txt`.
 
+## Escolher cookie ou usuário e senha
+No arquivo **`modo.txt`** você decide como o script entra nas contas:
+- **`cookie`** — usa só os cookies da pasta `cookies/`.
+- **`senha`** — usa só usuário e senha do `senhas.txt` (ignora os cookies).
+- **`auto`** — tenta o cookie e, se falhar, tenta usuário e senha. (padrão)
+
+Se o `modo.txt` estiver vazio, usa `auto`.
+
 ## Reserva: logar por usuário e senha
 Se o cookie de uma conta falhar (desconectado/expirado), o script pode tentar entrar com
 usuário e senha. Para isso:
