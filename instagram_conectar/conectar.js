@@ -471,6 +471,17 @@ async function passarTelas(page, nome) {
           continue;
         }
       }
+      // "Permitir" já na tela a qualquer momento (conta já configurada / reconexão): clica logo
+      const permitir = PASSOS[PASSOS.length - 1];
+      if (passo !== permitir) {
+        el = await acharTexto(page, permitir.textos).catch(() => null);
+        if (el && !(await acharTexto(page, passo.textos).catch(() => null))) {
+          alvo = PASSOS.length - 1;
+          break;
+        }
+        el = null;
+      }
+
       // Passo não apareceu em 2,5s: se uma tela mais à frente já está aparecendo, pula para ela
       if (Date.now() - inicio > 2500) {
         for (let j = i + 1; j < PASSOS.length; j++) {
@@ -479,7 +490,7 @@ async function passarTelas(page, nome) {
             alvo = j;
             break;
           }
-          if (!PASSOS[j].opcional) break; // não pula por cima de um passo obrigatório
+          // pula passos do meio quando a conta já está configurada (vai até achar um que apareça)
         }
         if (alvo >= 0) break;
       }
