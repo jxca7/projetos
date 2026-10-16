@@ -31,7 +31,17 @@ const TXT_SEM_CONVITES = ['não tem convites', 'nenhum convite', 'no tester invi
 // ---------- utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-const pausaHumana = (min = 800, max = 2000) => esperar(min + Math.random() * (max - min));
+// VELOCIDADE: multiplica todas as pausas. 1 = devagar (mais "humano"), 0.3 = rápido.
+const VELOCIDADE = 0.3;
+const pausaHumana = (min = 800, max = 2000) => esperar((min + Math.random() * (max - min)) * VELOCIDADE);
+
+const SELETOR_BIO = 'textarea#pepBio, textarea[name="biography"], textarea';
+
+// Abre a página de editar perfil e espera só o campo da bio aparecer (sem esperar a página inteira)
+async function abrirEditar(page) {
+  await page.goto(URL_EDITAR, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForSelector(SELETOR_BIO, { visible: true, timeout: 20000 }).catch(() => {});
+}
 
 function log(conta, msg) {
   const hora = new Date().toLocaleTimeString('pt-BR');
@@ -264,12 +274,18 @@ async function paginaContem(page, textos) {
 
 async function aceitarConvitesTestador(page, nome) {
   log(nome, 'Abrindo Apps e sites...');
-  await page.goto(URL_APPS_E_SITES, { waitUntil: 'networkidle2', timeout: 60000 });
-  await pausaHumana(2000, 3500);
+  await page.goto(URL_APPS_E_SITES, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page
+    .waitForFunction(
+      (textos) => textos.some((t) => document.body.innerText.toLowerCase().includes(t.toLowerCase())),
+      { timeout: 10000 },
+      TXT_CONVITES,
+    )
+    .catch(() => {});
 
   // Se o link direto não abrir a tela, vai pelo menu: Permissões do site do app > Apps e sites
   if (!(await paginaContem(page, TXT_CONVITES))) {
-    await page.goto('https://www.instagram.com/accounts/edit/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await abrirEditar(page);
     await pausaHumana(1500, 3000);
     if (!(await clicarTexto(page, TXT_PERMISSOES))) throw new Error('Não achei "Permissões do site do app"');
     await pausaHumana(1500, 3000);
@@ -281,11 +297,11 @@ async function aceitarConvitesTestador(page, nome) {
   await pausaHumana(2000, 3500);
 
   let aceitos = 0;
-  while (aceitos < 20 && (await clicarTexto(page, TXT_ACEITAR, 4000))) {
+  while (aceitos < 20 && (await clicarTexto(page, TXT_ACEITAR, aceitos ? 2000 : 6000))) {
     aceitos++;
-    await pausaHumana(2000, 3500);
-    await clicarTexto(page, TXT_ACEITAR, 1500); // às vezes pede para confirmar
-    await pausaHumana(1500, 2500);
+    await pausaHumana(1000, 2000);
+    await clicarTexto(page, TXT_ACEITAR, 800); // às vezes pede para confirmar
+    await pausaHumana(800, 1500);
   }
 
   if (aceitos) log(nome, 'Convites do testador aceitos.');
@@ -296,7 +312,7 @@ async function aceitarConvitesTestador(page, nome) {
 // Lê a bio que está salva no perfil agora (null se não conseguir ler)
 async function lerBioAtual(page) {
   try {
-    await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
+    await abrirEditar(page);
     const campo = await page.waitForSelector('textarea#pepBio, textarea[name="biography"], textarea', { timeout: 15000 });
     return await campo.evaluate((t) => t.value);
   } catch {
@@ -310,6 +326,11 @@ function avisarSemBio(nome) {
 }
 
 async function trocarFoto(page, nome, arquivo) {
+  // Espera a resposta do upload em vez de um tempo fixo
+  const upload = page
+    .waitForResponse((r) => /profile_pic|profile_picture/i.test(r.url()) && r.request().method() === 'POST', { timeout: 20000 })
+    .catch(() => null);
+
   // 1ª tentativa: input de arquivo escondido na própria página de edição
   const input = await page.$('input[type="file"][accept*="image"]');
   if (input) {
@@ -324,7 +345,8 @@ async function trocarFoto(page, nome, arquivo) {
     await chooser.accept([arquivo]);
   }
 
-  await esperar(6000); // tempo para o upload terminar
+  if (!(await upload)) await esperar(3000); // não vi a resposta: dá um tempinho para terminar
+  await pausaHumana(500, 1000);
   log(nome, 'Foto trocada.');
 }
 
@@ -342,7 +364,7 @@ async function trocarBio(page, nome, bio) {
   // Digita linha por linha para preservar quebras de linha
   const linhas = bio.split('\n');
   for (let i = 0; i < linhas.length; i++) {
-    await campo.type(linhas[i], { delay: 40 + Math.random() * 60 });
+    await campo.type(linhas[i], { delay: 10 + Math.random() * 20 });
     if (i < linhas.length - 1) {
       await page.keyboard.down('Shift');
       await page.keyboard.press('Enter');
@@ -351,10 +373,15 @@ async function trocarBio(page, nome, bio) {
   }
   await pausaHumana();
 
+  const salvou = page
+    .waitForResponse((r) => /accounts\/edit|edit_profile|web_edit/i.test(r.url()) && r.request().method() === 'POST', { timeout: 10000 })
+    .catch(() => null);
   if (!(await clicarPorTexto(page, TXT_ENVIAR))) throw new Error('Botão "Enviar" não encontrado');
+  const resposta = await salvou;
+  await esperar(resposta ? 800 : 2000);
 
   // O Instagram às vezes mostra "There was a problem saving your profile": tenta mais uma vez
-  if (await apareceuErro(page)) {
+  if ((resposta && !resposta.ok()) || (await textoDoErro(page))) {
     log(nome, 'O Instagram deu erro ao salvar, tentando de novo em 10s...');
     await esperar(10000);
     if (!(await clicarPorTexto(page, TXT_TENTAR_DE_NOVO, 3000))) await clicarPorTexto(page, TXT_ENVIAR, 3000);
@@ -365,7 +392,7 @@ async function trocarBio(page, nome, bio) {
   }
 
   // Confere recarregando a página
-  await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
+  await abrirEditar(page);
   const salva = await page
     .$eval('textarea#pepBio, textarea[name="biography"], textarea', (t) => t.value)
     .catch(() => null);
@@ -374,6 +401,7 @@ async function trocarBio(page, nome, bio) {
     throw new Error('A bio não ficou salva (o Instagram não aceitou a mudança)');
   }
   log(nome, 'Bio trocada.');
+  return true;
 }
 
 async function processarConta(nome, arquivoCookies, proxy) {
@@ -393,25 +421,27 @@ async function processarConta(nome, arquivoCookies, proxy) {
     log(nome, 'Colocando cookies...');
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
     await page.setCookie(...cookies);
-    await pausaHumana(1500, 3000);
+    await pausaHumana(500, 1000);
 
-    await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
+    await abrirEditar(page);
     await verificarLogado(page);
-    await pausaHumana(2000, 4000);
+    await pausaHumana(500, 1000);
 
     if (!foto) log(nome, 'Nenhuma foto .jpg/.png na pasta, pulando a foto.');
     if (foto) {
       await trocarFoto(page, nome, foto);
-      await page.goto(URL_EDITAR, { waitUntil: 'networkidle2', timeout: 60000 });
-      await pausaHumana(2000, 4000);
+      await abrirEditar(page);
+      await pausaHumana(500, 1000);
     }
 
-    if (bio) await trocarBio(page, nome, bio);
+    let bioConfirmada = false;
+    if (bio) bioConfirmada = await trocarBio(page, nome, bio);
     else log(nome, 'bio.txt vazio, pulando a bio.');
 
     await aceitarConvitesTestador(page, nome);
 
-    const bioAtual = await lerBioAtual(page);
+    // Se a bio já foi conferida ao salvar, não precisa recarregar de novo
+    const bioAtual = bioConfirmada ? bio : await lerBioAtual(page);
     const semBio = bioAtual !== null && !bioAtual.trim();
     if (semBio) avisarSemBio(nome);
     return { semBio };
@@ -473,7 +503,7 @@ async function main() {
       if (err.semBio) semBioLista.push(nome);
       resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
-    if (i < arquivos.length - 1) await pausaHumana(5000, 10000);
+    if (i < arquivos.length - 1) await esperar(1000 + Math.random() * 1000);
   }
 
   console.log('\n===== RESUMO =====');
