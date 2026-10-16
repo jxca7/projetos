@@ -298,6 +298,9 @@ def novo_cliente(proxy):
     cl.delay_range = [2, 5]
     if proxy:
         cl.set_proxy(proxy)
+    # NÃO pergunta o código na tela: se pedir verificação, falha na hora e o script pula a conta
+    cl.challenge_code_handler = lambda username, choice: ""
+    cl.change_password_handler = lambda username: ""
     return cl
 
 
@@ -474,8 +477,29 @@ def main():
                 f.write(f"{datetime.now():%d/%m %H:%M} {nome}: FalhaAposLogin: {msg}\n")
         except Exception as err:
             msg = str(err) or type(err).__name__
+            ml = msg.lower()
+            # pediu verificação (2FA / código): NÃO é cookie morto. Pula a conta e separa em cookies/precisa_2fa/
+            if any(x in ml for x in ["2fa", "duas etapas", "verificação", "verificacao", "checkpoint", "challenge"]):
+                log(nome, "Pediu verificação (2FA/código) — pulei esta conta.")
+                if arquivo is not None:
+                    pasta = PASTA_COOKIES / "precisa_2fa"
+                    pasta.mkdir(exist_ok=True)
+                    try:
+                        shutil.move(str(arquivo), str(pasta / arquivo.name))
+                    except Exception:
+                        pass
+                    resultado.append(f"⏭ {nome}: pediu verificação (cookies/precisa_2fa/)")
+                else:
+                    resultado.append(f"⏭ {nome}: pediu verificação (2FA)")
+                with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
+                    f.write(f"{datetime.now():%d/%m %H:%M} {nome}: 2FA/verificacao: {msg}\n")
+                if i < len(itens) - 1:
+                    espera = random.randint(INTERVALO_MIN, INTERVALO_MAX)
+                    print(f"Esperando {espera}s antes da próxima conta...")
+                    time.sleep(espera)
+                continue
             # login não deu certo (cookie desconectado/expirado): separa em cookies/mortos/
-            morto = any(x in msg.lower() for x in ["logged_out", "login_required", "checkpoint", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"])
+            morto = any(x in ml for x in ["logged_out", "login_required", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"])
             if morto and arquivo is not None:
                 PASTA_MORTOS.mkdir(exist_ok=True)
                 try:
