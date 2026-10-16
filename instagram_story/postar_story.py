@@ -12,10 +12,21 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+import logging
+
 from instagrapi import Client
 from instagrapi.exceptions import BadPassword, ChallengeRequired, TwoFactorRequired
 from instagrapi.types import StoryLink
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+# A biblioteca imprime tracebacks enormes a cada tentativa; deixa só o essencial
+logging.getLogger("instagrapi").setLevel(logging.CRITICAL)
+logging.getLogger("public_request").setLevel(logging.CRITICAL)
+logging.getLogger("private_request").setLevel(logging.CRITICAL)
+
+
+class FalhaAposLogin(Exception):
+    """O login deu certo, mas a ação (postar/destacar) foi recusada. NÃO é cookie morto."""
 
 PASTA = Path(__file__).resolve().parent
 PASTA_COOKIES = PASTA / "cookies"
@@ -329,12 +340,17 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque, senha):
     cl.dump_settings(arquivo_sessao)
     log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
 
-    links = []
-    if link:
-        x, y, largura, altura = area
-        links = [StoryLink(webUri=link, x=x, y=y, width=largura, height=altura)]
-    log(nome, "Postando story..." + (f" (link: {link})" if link else ""))
-    story = cl.photo_upload_to_story(imagem, links=links, resize_mode="fill")
+    # A partir daqui o login JÁ deu certo. Se der erro, não é cookie morto: é o Instagram
+    # recusando a AÇÃO (geralmente IP). Marcamos como FalhaAposLogin para não jogar em mortos.
+    try:
+        links = []
+        if link:
+            x, y, largura, altura = area
+            links = [StoryLink(webUri=link, x=x, y=y, width=largura, height=altura)]
+        log(nome, "Postando story..." + (f" (link: {link})" if link else ""))
+        story = cl.photo_upload_to_story(imagem, links=links, resize_mode="fill")
+    except Exception as e:
+        raise FalhaAposLogin(f"logou, mas o Instagram recusou postar o story ({type(e).__name__}: {e})")
 
     if link and not story.links:
         log(nome, "AVISO: o story foi postado, mas o Instagram não devolveu a figurinha de link. Confira no app.")
@@ -419,9 +435,25 @@ def main():
                 shutil.move(str(arquivo), str(PASTA_FEITOS / arquivo.name))
             log(nome, "OK ✔")
             resultado.append(f"✔ {nome}")
+        except FalhaAposLogin as err:
+            # Logou, mas o Instagram recusou a ação. NÃO é cookie morto: separa em cookies/recusado/
+            msg = str(err)
+            log(nome, f"ERRO: {msg}")
+            if arquivo is not None:
+                pasta = PASTA_COOKIES / "recusado"
+                pasta.mkdir(exist_ok=True)
+                try:
+                    shutil.move(str(arquivo), str(pasta / arquivo.name))
+                except Exception:
+                    pass
+                resultado.append(f"✘ {nome}: {msg} (cookies/recusado/)")
+            else:
+                resultado.append(f"✘ {nome}: {msg}")
+            with open(PASTA / "erros.txt", "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%d/%m %H:%M} {nome}: FalhaAposLogin: {msg}\n")
         except Exception as err:
             msg = str(err) or type(err).__name__
-            # cookie desconectado/expirado E sem senha de reserva: separa em cookies/mortos/
+            # login não deu certo (cookie desconectado/expirado): separa em cookies/mortos/
             morto = any(x in msg.lower() for x in ["logged_out", "login_required", "checkpoint", "não está logado", "csrf", "sessionid", "sem cookie e sem senha"])
             if morto and arquivo is not None:
                 PASTA_MORTOS.mkdir(exist_ok=True)
