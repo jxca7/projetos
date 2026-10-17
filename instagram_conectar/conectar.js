@@ -1,7 +1,11 @@
-// Para cada linha do contas.txt (usuario:senha), abre o site do site.txt no Edge,
-// clica em "Conectar Instagram", entra na conta e passa pelas telas da Meta:
+// Abre o site do site.txt no Edge, clica em "Conectar Instagram", entra na conta
+// e passa pelas telas da Meta:
 // Mudar > Criador de conteúdo > Avançar > Blog pessoal > Concluir > Continuar > Concluir > Permitir.
-// As contas que deram certo saem do contas.txt e vão para feitos.txt.
+//
+// Tem dois jeitos de entrar na conta (ele escolhe sozinho):
+//   1) COOKIE (recomendado): jogue os arquivos de cookies na pasta cookies/. A conta já entra
+//      logada, pula o login e o 2FA, e vai direto para o "Permitir".
+//   2) USUÁRIO E SENHA: se a pasta cookies/ estiver vazia, usa o contas.txt (usuario:senha).
 
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +14,8 @@ const puppeteer = require('puppeteer-core');
 const PASTA = __dirname;
 const ARQ_CONTAS = path.join(PASTA, 'contas.txt');
 const ARQ_FEITOS = path.join(PASTA, 'feitos.txt');
+const PASTA_COOKIES = path.join(PASTA, 'cookies');
+const SUBPASTAS = { feitos: 'feitos', mortos: 'mortos', doisfatores: 'precisa_2fa' };
 const ESPERA_MANUAL = 5 * 60 * 1000; // tempo para você fazer algo na mão (login no site, código de verificação)
 
 const TXT_CONECTAR = ['Conectar Instagram', 'Connect Instagram'];
@@ -95,7 +101,90 @@ function lerContas() {
     .filter((c) => c.usuario && c.senha && c.usuario !== 'usuario1');
 }
 
-// Tira a conta do contas.txt e coloca no feitos.txt
+// ---------- cookies ----------
+
+// Lê o arquivo de cookies em qualquer um destes formatos:
+//   - JSON (Cookie-Editor / EditThisCookie): [{"name": ..., "value": ...}]
+//   - Netscape (cookies.txt): linhas separadas por TAB
+//   - Texto simples: sessionid=...; csrftoken=...; ds_user_id=...
+function lerListaCookies(arquivo) {
+  const texto = fs.readFileSync(arquivo, 'utf8').replace(/^﻿/, '').trim();
+  if (!texto) throw new Error('O arquivo de cookies está vazio');
+
+  if (texto.startsWith('[') || texto.startsWith('{')) {
+    let bruto;
+    try {
+      bruto = JSON.parse(texto);
+    } catch {
+      throw new Error('O JSON de cookies está incompleto ou quebrado (copie de novo o conteúdo inteiro)');
+    }
+    const lista = Array.isArray(bruto) ? bruto : bruto.cookies;
+    if (!Array.isArray(lista)) throw new Error('Formato de cookies não reconhecido (esperava uma lista JSON)');
+    return lista;
+  }
+
+  const linhas = texto.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
+  if (linhas.some((l) => l.split('\t').length >= 7)) {
+    return linhas
+      .map((l) => l.split('\t'))
+      .filter((p) => p.length >= 7)
+      .map(([domain, , cpath, secure, expira, name, value]) => ({
+        domain, path: cpath, secure: secure.toUpperCase() === 'TRUE', expirationDate: Number(expira), name, value,
+      }));
+  }
+
+  return texto
+    .split(/;\s*|\r?\n/)
+    .map((par) => par.trim())
+    .filter((par) => par.includes('='))
+    .map((par) => {
+      const i = par.indexOf('=');
+      return { name: par.slice(0, i).trim(), value: par.slice(i + 1).trim(), domain: '.instagram.com' };
+    });
+}
+
+// Converte para o formato do Puppeteer
+function lerCookies(arquivo) {
+  const lista = lerListaCookies(arquivo);
+  const mapaSameSite = { no_restriction: 'None', none: 'None', lax: 'Lax', strict: 'Strict' };
+
+  const cookies = lista
+    .filter((c) => c.name && c.value !== undefined)
+    .map((c) => {
+      const cookie = {
+        name: c.name,
+        value: String(c.value),
+        domain: c.domain || '.instagram.com',
+        path: c.path || '/',
+        httpOnly: !!c.httpOnly,
+        secure: c.secure !== false,
+      };
+      const expira = c.expirationDate ?? c.expires;
+      if (expira && expira > 0 && !c.session) cookie.expires = Math.floor(expira);
+      const ss = mapaSameSite[String(c.sameSite || '').toLowerCase()];
+      if (ss) cookie.sameSite = ss;
+      return cookie;
+    });
+
+  if (!cookies.some((c) => c.name === 'sessionid')) throw new Error('O arquivo não tem o cookie "sessionid"');
+  return cookies;
+}
+
+// Lê os arquivos de cookies da pasta cookies/ (ignora as subpastas feitos/mortos/precisa_2fa).
+// Cada arquivo é uma conta; o nome do arquivo (sem extensão) vira o "nome" dela.
+function lerContasCookie() {
+  if (!fs.existsSync(PASTA_COOKIES)) return [];
+  return fs
+    .readdirSync(PASTA_COOKIES, { withFileTypes: true })
+    .filter((d) => d.isFile() && !d.name.startsWith('.'))
+    .map((d) => ({
+      modo: 'cookie',
+      arquivo: path.join(PASTA_COOKIES, d.name),
+      usuario: d.name.replace(/\.[^.]+$/, ''),
+    }));
+}
+
+// Tira a conta do contas.txt e coloca no feitos.txt (modo usuário:senha)
 function moverConta(conta, destino) {
   const linhas = fs.readFileSync(ARQ_CONTAS, 'utf8').split(/\r?\n/);
   const resto = linhas.filter((l) => l.trim() !== conta.linha);
@@ -103,9 +192,32 @@ function moverConta(conta, destino) {
   fs.appendFileSync(destino, `${conta.linha}\r\n`);
 }
 
-const marcarFeita = (conta) => moverConta(conta, ARQ_FEITOS);
-// Conta com 2FA vai para 2fa.txt, para não ficar tentando de novo
-const marcar2FA = (conta) => moverConta(conta, path.join(PASTA, '2fa.txt'));
+// Move o arquivo de cookie para uma subpasta de cookies/ (feitos, mortos, precisa_2fa)
+function moverCookie(conta, subpasta) {
+  const destinoDir = path.join(PASTA_COOKIES, subpasta);
+  fs.mkdirSync(destinoDir, { recursive: true });
+  try {
+    fs.renameSync(conta.arquivo, path.join(destinoDir, path.basename(conta.arquivo)));
+  } catch {
+    // renameSync falha entre drives diferentes; copia e apaga
+    fs.copyFileSync(conta.arquivo, path.join(destinoDir, path.basename(conta.arquivo)));
+    fs.unlinkSync(conta.arquivo);
+  }
+}
+
+// Marca a conta conforme o modo (cookie = move o arquivo; senha = move a linha do txt)
+function marcarFeita(conta) {
+  if (conta.modo === 'cookie') moverCookie(conta, SUBPASTAS.feitos);
+  else moverConta(conta, ARQ_FEITOS);
+}
+function marcar2FA(conta) {
+  if (conta.modo === 'cookie') moverCookie(conta, SUBPASTAS.doisfatores);
+  else moverConta(conta, path.join(PASTA, '2fa.txt'));
+}
+function marcarMorta(conta) {
+  if (conta.modo === 'cookie') moverCookie(conta, SUBPASTAS.mortos);
+  // no modo senha a conta continua no contas.txt para você tentar de novo
+}
 
 // ---------- Microsoft Edge ----------
 
@@ -161,6 +273,17 @@ async function limparLoginInstagram(page) {
     }
   }
   await cdp.detach();
+}
+
+// Coloca os cookies da conta no Edge, para ela já entrar logada no Instagram (pula login e 2FA)
+async function injetarCookies(page, conta, nome) {
+  const cookies = lerCookies(conta.arquivo);
+  // Abre o Instagram só para fixar o domínio e então grava os cookies
+  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await page.setCookie(...cookies);
+  const temIds = cookies.some((c) => c.name === 'ds_user_id') && cookies.some((c) => c.name === 'csrftoken');
+  if (!temIds) log(nome, 'AVISO: faltam ds_user_id e/ou csrftoken no cookie. Só com o sessionid o Instagram costuma pedir login de novo.');
+  log(nome, 'Cookies colocados no navegador.');
 }
 
 // ---------- cliques ----------
@@ -372,12 +495,19 @@ async function pediu2FA(page) {
 }
 
 async function fazerLogin(page, conta, nome) {
+  // No modo cookie, a conta já deve estar logada: a tela de login só aparece se o cookie estiver morto.
+  const prazoLogin = conta.modo === 'cookie' ? 12000 : 30000;
   const campoUsuario = await page
-    .waitForSelector('input[name="username"], input[name="email"]', { visible: true, timeout: 30000 })
+    .waitForSelector('input[name="username"], input[name="email"]', { visible: true, timeout: prazoLogin })
     .catch(() => null);
   if (!campoUsuario) {
-    log(nome, 'Não apareceu a tela de login (talvez já esteja logado). Seguindo...');
+    log(nome, 'Não apareceu a tela de login (já está logado pelo cookie). Seguindo...');
     return;
+  }
+  if (conta.modo === 'cookie') {
+    const err = new Error('O cookie não logou (apareceu a tela de login do Instagram). Cookie morto ou de outro IP.');
+    err.cookieMorto = true;
+    throw err;
   }
   const campoSenha = await page.waitForSelector('input[name="password"], input[name="pass"], input[type="password"]', {
     visible: true,
@@ -530,6 +660,7 @@ async function conectarConta(browser, site, conta) {
   await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9' });
   try {
     await limparLoginInstagram(page);
+    if (conta.modo === 'cookie') await injetarCookies(page, conta, nome);
     await clicarConectar(page, site, nome);
     await fazerLogin(page, conta, nome);
     await passarTelas(page, nome);
@@ -548,10 +679,20 @@ async function main() {
   if (!fs.existsSync(arqLoginSite)) fs.writeFileSync(arqLoginSite, 'seu@email.com:suasenha\r\n');
   if (!lerLoginSite()) console.log('AVISO: site_login.txt não preenchido; se o site pedir login, entre na mão.');
 
-  const contas = lerContas();
-  if (!contas.length) {
-    console.log('Nenhuma conta no contas.txt (formato: usuario:senha, uma por linha). Nada a fazer.');
-    return;
+  // Se tiver cookies na pasta cookies/, usa cookie (melhor: pula login e 2FA). Senão, usa usuario:senha.
+  const contasCookie = lerContasCookie();
+  let contas;
+  if (contasCookie.length) {
+    contas = contasCookie;
+    console.log(`Modo COOKIE: ${contas.length} conta(s) na pasta cookies/.`);
+  } else {
+    fs.mkdirSync(PASTA_COOKIES, { recursive: true });
+    contas = lerContas();
+    if (!contas.length) {
+      console.log('Nada a fazer. Jogue cookies na pasta cookies/, OU preencha o contas.txt (usuario:senha).');
+      return;
+    }
+    console.log(`Modo USUÁRIO E SENHA: ${contas.length} conta(s) no contas.txt. (Dica: usar cookie na pasta cookies/ evita o 2FA.)`);
   }
 
   const proxy = lerProxy();
@@ -574,7 +715,10 @@ async function main() {
         log(conta.usuario, `ERRO: ${err.message}`);
         if (err.pediu2FA) {
           marcar2FA(conta);
-          resultado.push(`⏭ ${conta.usuario}: pediu 2FA (foi para o 2fa.txt)`);
+          resultado.push(`⏭ ${conta.usuario}: pediu 2FA (${conta.modo === 'cookie' ? 'cookies/precisa_2fa/' : '2fa.txt'})`);
+        } else if (err.cookieMorto) {
+          marcarMorta(conta);
+          resultado.push(`✘ ${conta.usuario}: cookie morto (cookies/mortos/)`);
         } else {
           resultado.push(`✘ ${conta.usuario}: ${err.message}`);
         }
