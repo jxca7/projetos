@@ -275,15 +275,32 @@ async function limparLoginInstagram(page) {
   await cdp.detach();
 }
 
-// Coloca os cookies da conta no Edge, para ela já entrar logada no Instagram (pula login e 2FA)
+// Coloca os cookies da conta no Edge, para ela já entrar logada no Instagram (pula login e 2FA).
+// Já confere aqui se o cookie logou de verdade (abrindo o instagram.com), para avisar cedo e claro.
 async function injetarCookies(page, conta, nome) {
   const cookies = lerCookies(conta.arquivo);
-  // Abre o Instagram só para fixar o domínio e então grava os cookies
-  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-  await page.setCookie(...cookies);
   const temIds = cookies.some((c) => c.name === 'ds_user_id') && cookies.some((c) => c.name === 'csrftoken');
   if (!temIds) log(nome, 'AVISO: faltam ds_user_id e/ou csrftoken no cookie. Só com o sessionid o Instagram costuma pedir login de novo.');
-  log(nome, 'Cookies colocados no navegador.');
+
+  // Abre o Instagram para fixar o domínio, grava os cookies e recarrega para a sessão "pegar"
+  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await page.setCookie(...cookies);
+  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await pausaHumana(1500, 2500);
+
+  // Se ainda aparece a tela de login, o cookie não valeu (morto, expirado ou de outro IP)
+  const precisaLogin = await page
+    .evaluate(() => !!document.querySelector('input[name="username"]') || /\/accounts\/login/.test(location.pathname))
+    .catch(() => false);
+  if (precisaLogin) {
+    const err = new Error(
+      'O cookie não logou no Instagram (caiu na tela de login). O cookie está morto/expirado OU é de outro IP: ' +
+        'use um proxy do mesmo IP/país de onde o cookie foi pego (proxy.txt).',
+    );
+    err.cookieMorto = true;
+    throw err;
+  }
+  log(nome, 'Cookie OK — entrou logado no Instagram.');
 }
 
 // ---------- cliques ----------
