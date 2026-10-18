@@ -1,4 +1,7 @@
 // Recebe a tarefa escolhida no menu do rodar.bat e chama o arquivo certo.
+// Garante que as pastas e os arquivos-modelo existam (caso rode sem passar pelo rodar.bat)
+require('./preparar').preparar();
+
 const tarefas = {
   tudo: './tudo',
   perfil: './perfil',

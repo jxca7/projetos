@@ -10,6 +10,9 @@ if not exist node_modules (
 echo Verificando atualizacao...
 node atualizar.js
 
+rem Cria as pastas e arquivos-modelo (cookies\, bios\, fotos\, testar\, bio.txt, site.txt...)
+node preparar.js
+
 :menu
 echo.
 echo  ================= Instagram =================
