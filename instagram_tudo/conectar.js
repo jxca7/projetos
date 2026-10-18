@@ -57,6 +57,22 @@ function lerContas() {
     .filter((c) => c.usuario && c.senha && c.usuario !== 'usuario1');
 }
 
+// Mapa usuario->senha lido do contas.txt. Usado no modo cookie: a tela de "Conectar" pede
+// a senha (não aproveita o cookie), então buscamos a senha da conta aqui pelo @usuário.
+function lerMapaSenhas() {
+  const mapa = new Map();
+  if (!fs.existsSync(ARQ_CONTAS)) return mapa;
+  for (const linha of (lerTexto(ARQ_CONTAS) || '').split(/\r?\n/)) {
+    const l = linha.trim();
+    if (!l || l.startsWith('#') || !l.includes(':')) continue;
+    const i = l.indexOf(':');
+    const usuario = l.slice(0, i).trim();
+    const senha = l.slice(i + 1).trim();
+    if (usuario && senha && usuario !== 'usuario1') mapa.set(usuario.toLowerCase().replace(/^@/, ''), senha);
+  }
+  return mapa;
+}
+
 // Cada arquivo da pasta cookies/ que ainda não foi conectado é uma conta
 function lerContasCookie() {
   const feitos = jaFeitas('conectar');
@@ -135,7 +151,27 @@ async function injetarCookies(page, conta, nome) {
     err.cookieMorto = true;
     throw err;
   }
-  log(nome, 'Cookie OK — entrou logado no Instagram.');
+  // Descobre o @usuário logado (serve para pegar a senha no contas.txt na hora de conectar)
+  const usuarioReal = await page
+    .evaluate(async () => {
+      try {
+        const r = await fetch('/api/v1/accounts/current_user/?edit=true', {
+          headers: { 'x-ig-app-id': '936619743392459' },
+          credentials: 'include',
+        });
+        const j = await r.json();
+        return (j && j.user && j.user.username) || null;
+      } catch {
+        return null;
+      }
+    })
+    .catch(() => null);
+  if (usuarioReal) {
+    conta.usuarioReal = usuarioReal;
+    log(nome, `Cookie OK — logado como @${usuarioReal}.`);
+  } else {
+    log(nome, 'Cookie OK — entrou logado no Instagram.');
+  }
 }
 
 // ---------- cliques ----------
@@ -368,8 +404,19 @@ async function fazerLogin(page, conta, nome) {
           log(nome, 'Cliquei em "Continuar como".');
           return;
         }
-        const err = new Error('O OAuth pediu login mesmo com o cookie (não achei o botão "Continuar como").');
-        err.cookieMorto = true;
+        // Esse site abre um login próprio no "Conectar" e não aproveita o cookie.
+        // Entra com usuário e senha pegando a senha do contas.txt pelo @usuário da conta.
+        const user = (conta.usuarioReal || conta.usuario || '').replace(/^@/, '');
+        const senha = lerMapaSenhas().get(user.toLowerCase());
+        if (senha) {
+          log(nome, `A tela de "Conectar" pediu login; entrando com @${user} e senha (do contas.txt)...`);
+          await loginComSenha(page, { modo: 'senha', usuario: user, senha }, nome, campoUsuario);
+          return;
+        }
+        const err = new Error(
+          `A tela de "Conectar" pediu senha e eu não a tenho. Coloque "${user}:SUA_SENHA" no contas.txt (uma linha por conta).`,
+        );
+        err.semSenha = true;
         throw err;
       }
       await loginComSenha(page, conta, nome, campoUsuario);

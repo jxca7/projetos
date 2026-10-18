@@ -28,11 +28,16 @@ Faz tudo para cada conta, numa passada só: entra logado pelo cookie, aceita o c
 troca a foto e a bio, e **já conecta no site** (como a conta já está logada, vai direto para o "Permitir").
 1. Jogue os cookies na pasta **`cookies/`**.
 2. Preencha o que a foto/bio e o conectar precisam (veja as opções 2 e 3 abaixo): `bio.txt`, `foto.jpg`,
-   `site.txt` e `site_login.txt`.
+   `site.txt`, `site_login.txt` e o **`contas.txt`** (veja a observação abaixo).
 3. No menu, escolha **1**.
 
 Se a foto ou a bio derem erro, ele avisa mas **mesmo assim tenta conectar**. Contas que deram certo
 são anotadas e puladas da próxima vez (apague `feitos_tudo.txt` para refazer).
+
+> **Importante:** a tela "Conectar Instagram" do site abre um login próprio e **pede a senha mesmo
+> usando cookie** (o cookie só adianta a foto/bio e o login do site). Por isso, coloque a senha de
+> cada conta no **`contas.txt`** (`usuario:senha`, uma por linha). O script descobre o @usuário pelo
+> cookie e pega a senha certa ali. Contas com **2FA** vão para `cookies/precisa_2fa/`.
 
 ## 2) Só foto, bio e convite de testador
 1. Jogue os cookies na pasta **`cookies/`**.
@@ -45,13 +50,17 @@ Cada conta usa um perfil separado do Edge (pasta `navegador/`). Se o perfil fica
 
 ## 3) Só conectar a conta no site
 1. Coloque o link do site no **`site.txt`** e o login **do site** (email:senha) no **`site_login.txt`**.
-2. Jogue os cookies na pasta **`cookies/`** (recomendado — pula login e 2FA).
-   Se a pasta `cookies/` estiver vazia, ele usa o **`contas.txt`** (usuario:senha, uma por linha).
-3. No menu, escolha **3**.
+2. Coloque a senha de cada conta no **`contas.txt`** (`usuario:senha`, uma por linha).
+3. Jogue os cookies na pasta **`cookies/`** (o cookie entra logado e já traz o @usuário da conta).
+   Se a pasta `cookies/` estiver vazia, ele usa direto o **`contas.txt`** (login por usuário e senha).
+4. No menu, escolha **3**.
 
 Ele clica em **+ Conectar Instagram → Conectar Instagram**, entra na conta e passa pelas telas:
 **Mudar → Criador de conteúdo → Avançar → Blog pessoal → Concluir → Continuar → Permitir**.
-No modo cookie, contas que pedem 2FA vão para `cookies/precisa_2fa/`.
+
+> A tela "Conectar Instagram" abre um login próprio do Instagram e **pede a senha mesmo com cookie**.
+> Por isso o `contas.txt` é necessário aqui. O script acha a senha pelo @usuário que o cookie trouxe.
+> Contas que pedem **2FA** vão para `cookies/precisa_2fa/`.
 
 ## 4) Testar cookies (não altera nada)
 1. Coloque os cookies para testar na pasta **`testar/`** (não na `cookies/`).
