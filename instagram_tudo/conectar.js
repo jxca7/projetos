@@ -327,20 +327,61 @@ async function pediu2FA(page) {
     .catch(() => false);
 }
 
-async function fazerLogin(page, conta, nome) {
-  const prazoLogin = conta.modo === 'cookie' ? 12000 : 30000;
-  const campoUsuario = await page
-    .waitForSelector('input[name="username"], input[name="email"]', { visible: true, timeout: prazoLogin })
+// Clica no botão "Continuar como @fulano" / "Continue as fulano" (entra pela sessão do cookie, sem senha)
+async function clicarContinuarComo(page) {
+  const handle = await page
+    .evaluateHandle(() => {
+      const re = /^(continuar como|continue as)\b/i;
+      const els = [...document.querySelectorAll('button, [role="button"], a, div[tabindex]')];
+      const el = els.find((e) => re.test((e.innerText || '').trim()) && e.offsetParent !== null);
+      return el || null;
+    })
     .catch(() => null);
-  if (!campoUsuario) {
-    log(nome, 'Não apareceu a tela de login (já está logado pelo cookie). Seguindo...');
-    return;
+  const el = handle && handle.asElement();
+  if (!el) return false;
+  await pausaHumana(400, 900);
+  await cliqueHumano(page, el);
+  return true;
+}
+
+async function fazerLogin(page, conta, nome) {
+  // Depois do "Conectar Instagram", a tela do Instagram pode ser:
+  //  - botão "Continuar como @fulano": já está logado pelo cookie, é só confirmar (sem senha)
+  //  - já é uma tela do fluxo (Mudar/Permitir): segue direto
+  //  - campo de login: no modo cookie é problema; no modo senha, digita usuário e senha
+  const prazo = Date.now() + (conta.modo === 'cookie' ? 20000 : 30000);
+  while (Date.now() < prazo) {
+    if (await clicarContinuarComo(page)) {
+      log(nome, 'Cliquei em "Continuar como" (entrou pela sessão do cookie).');
+      return;
+    }
+    if ((await existeTexto(page, PASSOS[0].textos)) || (await existeTexto(page, PASSOS[PASSOS.length - 1].textos))) {
+      log(nome, 'Já está logado, seguindo para as telas.');
+      return;
+    }
+    const campoUsuario = await page.$('input[name="username"], input[name="email"]').catch(() => null);
+    if (campoUsuario) {
+      if (conta.modo === 'cookie') {
+        // às vezes o "Continuar como" demora um pouco para aparecer; dá uma última chance
+        await esperar(2000);
+        if (await clicarContinuarComo(page)) {
+          log(nome, 'Cliquei em "Continuar como".');
+          return;
+        }
+        const err = new Error('O OAuth pediu login mesmo com o cookie (não achei o botão "Continuar como").');
+        err.cookieMorto = true;
+        throw err;
+      }
+      await loginComSenha(page, conta, nome, campoUsuario);
+      return;
+    }
+    await esperar(300);
   }
-  if (conta.modo === 'cookie') {
-    const err = new Error('O cookie não logou (apareceu a tela de login do Instagram). Cookie morto ou de outro IP.');
-    err.cookieMorto = true;
-    throw err;
-  }
+  log(nome, 'Não apareceu login nem "Continuar como"; seguindo...');
+}
+
+// Faz o login digitando usuário e senha (modo contas.txt)
+async function loginComSenha(page, conta, nome, campoUsuario) {
   const campoSenha = await page.waitForSelector('input[name="password"], input[name="pass"], input[type="password"]', {
     visible: true,
     timeout: 10000,
