@@ -1,9 +1,10 @@
 # Instagram — tudo num menu só
 
-Três tarefas no mesmo programa:
-1. **Foto, bio e convite de testador**
-2. **Conectar a conta no site**
-3. **Testar cookies** (sem mexer em nada)
+No mesmo programa:
+1. **Foto/bio + Conectar (tudo de uma vez)** — para cada conta, faz a foto/bio/convite **e** já conecta no site, numa passada só.
+2. **Só foto, bio e convite de testador**
+3. **Só conectar a conta no site**
+4. **Testar cookies** (sem mexer em nada)
 
 ## Uma vez só
 Instale o **Node.js LTS** (https://nodejs.org). O Microsoft Edge já vem no Windows.
@@ -22,28 +23,39 @@ Cookies que não logam (mortos/IP) vão para `cookies/mortos/`.
 
 ---
 
-## 1) Foto, bio e convite de testador
+## 1) Foto/bio + Conectar (tudo de uma vez)  ← só por cookie
+Faz tudo para cada conta, numa passada só: entra logado pelo cookie, aceita o convite do testador,
+troca a foto e a bio, e **já conecta no site** (como a conta já está logada, vai direto para o "Permitir").
+1. Jogue os cookies na pasta **`cookies/`**.
+2. Preencha o que a foto/bio e o conectar precisam (veja as opções 2 e 3 abaixo): `bio.txt`, `foto.jpg`,
+   `site.txt` e `site_login.txt`.
+3. No menu, escolha **1**.
+
+Se a foto ou a bio derem erro, ele avisa mas **mesmo assim tenta conectar**. Contas que deram certo
+são anotadas e puladas da próxima vez (apague `feitos_tudo.txt` para refazer).
+
+## 2) Só foto, bio e convite de testador
 1. Jogue os cookies na pasta **`cookies/`**.
 2. Bio: escreva no **`bio.txt`**. Foto: coloque um **`foto.jpg`** nesta pasta.
    (Bio/foto diferente por conta: `bios/<nome>.txt` e `fotos/<nome>.jpg`, onde `<nome>` é o nome do arquivo do cookie.)
-3. No menu, escolha **1**.
+3. No menu, escolha **2**.
 
 Para cada conta: coloca os cookies, aceita o convite do testador, troca a foto e a bio.
 Cada conta usa um perfil separado do Edge (pasta `navegador/`). Se o perfil ficar sem bio, ele avisa.
 
-## 2) Conectar a conta no site
+## 3) Só conectar a conta no site
 1. Coloque o link do site no **`site.txt`** e o login **do site** (email:senha) no **`site_login.txt`**.
 2. Jogue os cookies na pasta **`cookies/`** (recomendado — pula login e 2FA).
    Se a pasta `cookies/` estiver vazia, ele usa o **`contas.txt`** (usuario:senha, uma por linha).
-3. No menu, escolha **2**.
+3. No menu, escolha **3**.
 
 Ele clica em **+ Conectar Instagram → Conectar Instagram**, entra na conta e passa pelas telas:
 **Mudar → Criador de conteúdo → Avançar → Blog pessoal → Concluir → Continuar → Permitir**.
 No modo cookie, contas que pedem 2FA vão para `cookies/precisa_2fa/`.
 
-## 3) Testar cookies (não altera nada)
+## 4) Testar cookies (não altera nada)
 1. Coloque os cookies para testar na pasta **`testar/`** (não na `cookies/`).
-2. No menu, escolha **3** (ou **4** para ver as janelas abrindo).
+2. No menu, escolha **4** (ou **5** para ver as janelas abrindo).
 
 Os que logaram vão para **`cookies_ok/`** (é só copiar para `cookies/`); os que falharam vão para
 `testar/falharam/`. Um resumo fica em `resultado_cookies.txt`.

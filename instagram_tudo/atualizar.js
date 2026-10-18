@@ -6,7 +6,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const BASE = 'https://raw.githubusercontent.com/jxca7/projetos/claude/great-fermat-rymemy/instagram_tudo/';
-const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'menu.js', 'atualizar.js', 'package.json', 'LEIA-ME.md'];
+const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'atualizar.js', 'package.json', 'LEIA-ME.md'];
 
 async function main() {
   const mudou = [];

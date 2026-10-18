@@ -437,4 +437,15 @@ async function rodar() {
   }
 }
 
-module.exports = { rodar };
+// Além do rodar(), exporto os passos para o fluxo "tudo de uma vez" (tudo.js) reaproveitar
+module.exports = {
+  rodar,
+  aceitarConvitesTestador,
+  trocarFoto,
+  trocarBio,
+  abrirEditar,
+  lerBioAtual,
+  avisarSemBio,
+  fotoDaConta,
+  bioDaConta,
+};

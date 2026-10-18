@@ -1,5 +1,6 @@
 // Recebe a tarefa escolhida no menu do rodar.bat e chama o arquivo certo.
 const tarefas = {
+  tudo: './tudo',
   perfil: './perfil',
   conectar: './conectar',
   testar: './testar',
@@ -8,7 +9,7 @@ const tarefas = {
 const tarefa = process.argv[2];
 const mod = tarefas[tarefa];
 if (!mod) {
-  console.error(`Tarefa desconhecida: "${tarefa}". Use perfil, conectar ou testar.`);
+  console.error(`Tarefa desconhecida: "${tarefa}". Use tudo, perfil, conectar ou testar.`);
   process.exit(1);
 }
 
