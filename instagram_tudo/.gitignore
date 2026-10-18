@@ -1,0 +1,28 @@
+node_modules/
+navegador/
+navegador_site/
+erros/
+proxy.txt
+
+# cookies e dados das contas (nunca subir pro GitHub)
+cookies/
+cookies_ok/
+testar/
+feitos_perfil.txt
+feitos_conectar.txt
+
+# foto/bio
+fotos/
+bios/
+foto.jpg
+foto.jpeg
+foto.png
+bio.txt
+
+# conectar
+contas.txt
+feitos.txt
+2fa.txt
+site.txt
+site_login.txt
+resultado_cookies.txt

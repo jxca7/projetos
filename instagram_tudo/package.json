@@ -1,0 +1,13 @@
+{
+  "name": "instagram-tudo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Foto/bio, conectar no site e testar cookies do Instagram pelo Microsoft Edge, num menu só",
+  "main": "menu.js",
+  "scripts": {
+    "start": "node menu.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
