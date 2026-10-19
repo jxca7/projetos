@@ -15,7 +15,8 @@ async function main() {
   const mudou = [];
 
   for (const nome of ARQUIVOS) {
-    const resp = await fetch(BASE + nome, { cache: 'no-store' });
+    // ?t=... fura o cache de 5 min do GitHub, para pegar a versão nova na hora
+    const resp = await fetch(`${BASE}${nome}?t=${Date.now()}`, { cache: 'no-store' });
     if (!resp.ok) {
       console.log(`Não consegui baixar ${nome} (HTTP ${resp.status}).`);
       continue;
