@@ -7,7 +7,9 @@ const { execSync } = require('child_process');
 
 const BASE = 'https://raw.githubusercontent.com/jxca7/projetos/claude/great-fermat-rymemy/instagram_tudo/';
 const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'atualizar.js', 'package.json', 'LEIA-ME.md',
-  'story/postar_story.py', 'story/requirements.txt', 'story/rodar_story.bat'];
+  'story/postar_story.py', 'story/requirements.txt', 'story/rodar_story.bat',
+  // menu.bat antes do rodar.bat: o rodar.bat chama o menu.bat logo depois desta atualização
+  'menu.bat', 'rodar.bat'];
 
 async function main() {
   const mudou = [];
@@ -45,6 +47,13 @@ async function main() {
   if (mudou.includes('package.json')) {
     console.log('Instalando dependências novas...');
     execSync('npm install --no-audit --no-fund', { cwd: __dirname, stdio: 'inherit' });
+  }
+
+  // Se o próprio atualizador mudou, roda a versão nova uma vez (ela pode ter arquivos novos na lista)
+  if (mudou.includes('atualizar.js') && !process.env.JA_REATUALIZOU) {
+    console.log(`Atualizado: ${mudou.join(', ')}`);
+    execSync(`node "${__filename}"`, { stdio: 'inherit', env: { ...process.env, JA_REATUALIZOU: '1' } });
+    return;
   }
 
   console.log(mudou.length ? `Atualizado: ${mudou.join(', ')}` : 'Já está na versão mais nova.');
