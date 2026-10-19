@@ -5,7 +5,23 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const BASE = 'https://raw.githubusercontent.com/jxca7/projetos/claude/great-fermat-rymemy/instagram_tudo/';
+const REPO = 'jxca7/projetos';
+const RAMO = 'claude/great-fermat-rymemy';
+const BASE = `https://raw.githubusercontent.com/${REPO}/${RAMO}/instagram_tudo/`;
+
+// O endereço pelo nome do ramo fica 5 min em cache no GitHub (e ele ignora ?t=...).
+// Por isso pergunto qual é o commit mais novo e baixo por ele: esse endereço nunca fica velho.
+async function baseAtual() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/commits/${RAMO}`, {
+      headers: { Accept: 'application/vnd.github.sha', 'User-Agent': 'instagram-tudo-atualizar' },
+      cache: 'no-store',
+    });
+    const sha = r.ok ? (await r.text()).trim() : '';
+    if (/^[0-9a-f]{40}$/.test(sha)) return `https://raw.githubusercontent.com/${REPO}/${sha}/instagram_tudo/`;
+  } catch {}
+  return BASE;
+}
 const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'atualizar.js', 'package.json', 'LEIA-ME.md',
   'story/postar_story.py', 'story/requirements.txt', 'story/rodar_story.bat',
   // menu.bat antes do rodar.bat: o rodar.bat chama o menu.bat logo depois desta atualização
@@ -13,10 +29,10 @@ const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js'
 
 async function main() {
   const mudou = [];
+  const base = await baseAtual();
 
   for (const nome of ARQUIVOS) {
-    // ?t=... fura o cache de 5 min do GitHub, para pegar a versão nova na hora
-    const resp = await fetch(`${BASE}${nome}?t=${Date.now()}`, { cache: 'no-store' });
+    const resp = await fetch(base + nome, { cache: 'no-store' });
     if (!resp.ok) {
       console.log(`Não consegui baixar ${nome} (HTTP ${resp.status}).`);
       continue;
