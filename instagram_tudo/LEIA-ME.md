@@ -71,13 +71,23 @@ Os que logaram vão para **`cookies_ok/`** (é só copiar para `cookies/`); os q
 
 ## 6) Postar story (com link e destaque)
 Fica na pasta **`story\`** (é em Python; na 1ª vez ele instala sozinho — precisa do **Python 3.12**).
-1. Coloque os cookies das contas na pasta **`story\cookies\`** (separada da `cookies\` principal).
+1. **Entre na conta de um destes dois jeitos (pode usar os dois ao mesmo tempo):**
+   - **Cookie:** coloque os cookies na pasta **`story\cookies\`** (separada da `cookies\` principal); OU
+   - **Usuário e senha:** coloque `usuario:senha` (uma por linha) no **`story\contas.txt`**. Se não existir
+     esse arquivo, ele usa o **`contas.txt`** da pasta principal (o mesmo do "Conectar").
 2. Coloque a imagem como **`story\story.jpg`**.
 3. No **`story\link.txt`**: 1ª linha o link, 2ª linha (opcional) o texto da figurinha.
 4. (Opcional) No **`story\destaque.txt`**: o nome do destaque.
 5. No menu, escolha **6**.
 
-O proxy é o mesmo `proxy.txt` da pasta principal (ou um `story\proxy.txt` próprio).
+O proxy é o mesmo `proxy.txt` da pasta principal (ou um `story\proxy.txt` próprio). As contas que
+postarem por usuário e senha ficam anotadas em `story\feitos_senha.txt` (apague para postar de novo);
+as com 2FA são puladas.
+
+> **Observação honesta:** o story é enviado pela API do app do Instagram, bem mais rígida que o site.
+> Tanto o cookie quanto o usuário/senha podem esbarrar em `login_required` ou na mensagem
+> *"Your version of Instagram is out of date"*. Isso é o Instagram limitando a conta/sessão, não um
+> erro do script — e quando acontece, não há muito o que o programa resolver.
 
 > Por que às vezes dá `login_required` / `PhotoNotUpload`: o story é enviado pela API do app do
 > Instagram, que é bem mais rígida que o site. Ela pode recusar uma sessão de cookie que funciona no
