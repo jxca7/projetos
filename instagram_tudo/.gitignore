@@ -28,3 +28,15 @@ site.txt
 site_login.txt
 resultado_cookies.txt
 COMECE-AQUI.txt
+
+# story
+story/.venv/
+story/__pycache__/
+story/cookies/
+story/sessoes/
+story/proxy.txt
+story/story.jpg
+story/story.jpeg
+story/story.png
+story/erros.txt
+story/intervalo.txt

@@ -69,6 +69,21 @@ Ele clica em **+ Conectar Instagram → Conectar Instagram**, entra na conta e p
 Os que logaram vão para **`cookies_ok/`** (é só copiar para `cookies/`); os que falharam vão para
 `testar/falharam/`. Um resumo fica em `resultado_cookies.txt`.
 
+## 6) Postar story (com link e destaque)
+Fica na pasta **`story\`** (é em Python; na 1ª vez ele instala sozinho — precisa do **Python 3.12**).
+1. Coloque os cookies das contas na pasta **`story\cookies\`** (separada da `cookies\` principal).
+2. Coloque a imagem como **`story\story.jpg`**.
+3. No **`story\link.txt`**: 1ª linha o link, 2ª linha (opcional) o texto da figurinha.
+4. (Opcional) No **`story\destaque.txt`**: o nome do destaque.
+5. No menu, escolha **6**.
+
+O proxy é o mesmo `proxy.txt` da pasta principal (ou um `story\proxy.txt` próprio).
+
+> Por que às vezes dá `login_required` / `PhotoNotUpload`: o story é enviado pela API do app do
+> Instagram, que é bem mais rígida que o site. Ela pode recusar uma sessão de cookie que funciona no
+> navegador — e quando isso começa a acontecer depois de ter funcionado, é o próprio Instagram
+> limitando aquelas contas. Isso não é algo que o script consiga resolver.
+
 ---
 
 ## Proxy (importante)

@@ -7,7 +7,7 @@ const path = require('path');
 const PASTA = __dirname;
 
 // pastas que o programa usa
-const PASTAS = ['cookies', 'bios', 'fotos', 'testar'];
+const PASTAS = ['cookies', 'bios', 'fotos', 'testar', 'story/cookies'];
 
 // arquivos-modelo: nome -> conteúdo inicial (só criado se ainda não existir).
 // ATENÇÃO: bio.txt e site.txt ficam VAZIOS de propósito (o conteúdo deles é usado de verdade;

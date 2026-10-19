@@ -6,7 +6,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const BASE = 'https://raw.githubusercontent.com/jxca7/projetos/claude/great-fermat-rymemy/instagram_tudo/';
-const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'atualizar.js', 'package.json', 'LEIA-ME.md'];
+const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'atualizar.js', 'package.json', 'LEIA-ME.md',
+  'story/postar_story.py', 'story/requirements.txt', 'story/rodar_story.bat'];
 
 async function main() {
   const mudou = [];
@@ -20,6 +21,7 @@ async function main() {
     const novo = await resp.text();
 
     const local = path.join(__dirname, nome);
+    fs.mkdirSync(path.dirname(local), { recursive: true });
     const atual = fs.existsSync(local) ? fs.readFileSync(local, 'utf8') : null;
     if (novo === atual) continue;
 
