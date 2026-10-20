@@ -9,7 +9,7 @@
 const {
   fs, path, puppeteer, PASTA, PASTA_COOKIES, SUB_MORTOS, SUB_2FA,
   esperar, pausaHumana, cliqueHumano, digitarHumano, log, lerTexto,
-  lerCookies, cookiesFaltando, cookiesNaPasta, moverCookie, jaFeitas, marcarFeita,
+  lerCookies, lerUsuarioSenha, cookiesFaltando, cookiesNaPasta, moverCookie, jaFeitas, marcarFeita,
   acharEdge, lerProxy, salvarPrint,
 } = require('./comum');
 
@@ -405,9 +405,18 @@ async function fazerLogin(page, conta, nome) {
           return;
         }
         // Esse site abre um login próprio no "Conectar" e não aproveita o cookie.
-        // Entra com usuário e senha pegando a senha do contas.txt pelo @usuário da conta.
-        const user = (conta.usuarioReal || conta.usuario || '').replace(/^@/, '');
-        const senha = lerMapaSenhas().get(user.toLowerCase());
+        // Entra com usuário e senha: primeiro do próprio arquivo da conta (formato com rótulos
+        // Usuário:/Senha:), senão do contas.txt pelo @usuário da conta.
+        let user = (conta.usuarioReal || conta.usuario || '').replace(/^@/, '');
+        let senha = '';
+        if (conta.arquivo) {
+          const us = lerUsuarioSenha(conta.arquivo);
+          if (us.senha) {
+            senha = us.senha;
+            if (us.usuario) user = us.usuario;
+          }
+        }
+        if (!senha) senha = lerMapaSenhas().get(user.toLowerCase());
         if (senha) {
           log(nome, `A tela de "Conectar" pediu login; entrando com @${user} e senha (do contas.txt)...`);
           await loginComSenha(page, { modo: 'senha', usuario: user, senha }, nome, campoUsuario);

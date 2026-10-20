@@ -4,6 +4,7 @@
 
 import json
 import random
+import re
 import shutil
 import sys
 import tempfile
@@ -113,9 +114,34 @@ def ler_link():
     return link, rotulo.upper()
 
 
+def _texto_dos_cookies(texto):
+    """Se o arquivo usa rótulos (Usuário:/Senha:/Cookie: ...), devolve só o que vem depois de 'Cookie:'."""
+    m = re.search(r"^[ \t]*cookie[ \t]*:[ \t]*(.+)$", texto, re.IGNORECASE | re.MULTILINE)
+    return m.group(1) if m else texto
+
+
+def ler_usuario_senha(arquivo):
+    """Lê usuário e senha de um arquivo com rótulos (Usuário:/Senha:). Vazio se não achar."""
+    try:
+        texto = arquivo.read_text(encoding="utf-8-sig")
+    except Exception:
+        return {"usuario": "", "senha": ""}
+
+    def pega(padroes):
+        for p in padroes:
+            m = re.search(p, texto, re.IGNORECASE | re.MULTILINE)
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+        return ""
+
+    usuario = pega([r"^[ \t]*usu[aá]rio[ \t]*:[ \t]*(.+)$", r"^[ \t]*user(?:name)?[ \t]*:[ \t]*(.+)$"]).lstrip("@")
+    senha = pega([r"^[ \t]*senha[ \t]*:[ \t]*(.+)$", r"^[ \t]*pass(?:word)?[ \t]*:[ \t]*(.+)$"])
+    return {"usuario": usuario, "senha": senha}
+
+
 def ler_sessionid(arquivo):
     """Aceita JSON (Cookie-Editor / EditThisCookie), cookies.txt (Netscape) ou texto sessionid=...;"""
-    texto = arquivo.read_text(encoding="utf-8-sig").strip()
+    texto = _texto_dos_cookies(arquivo.read_text(encoding="utf-8-sig").strip())
     if not texto:
         raise ValueError("O arquivo de cookies está vazio")
 
@@ -294,7 +320,7 @@ def novo_cliente(proxy):
 
 def ler_todos_cookies(arquivo):
     """Lê todos os cookies (nome -> valor). Usado para dar à API tudo que o navegador tinha."""
-    texto = arquivo.read_text(encoding="utf-8-sig").strip()
+    texto = _texto_dos_cookies(arquivo.read_text(encoding="utf-8-sig").strip())
     mapa = {}
     if texto.startswith(("[", "{")):
         try:
@@ -394,10 +420,25 @@ def postar(nome, arquivo_cookies, imagem, link, area, proxy, destaque):
     PASTA_SESSOES.mkdir(exist_ok=True)
     arquivo_sessao = PASTA_SESSOES / f"{nome}.json"
 
-    log(nome, "Entrando pelo cookie...")
-    cl = login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao)
-    log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
+    # Tem sessionid no arquivo? Entra por cookie. Se não, mas tem usuário/senha, entra por senha.
+    try:
+        tem_sessionid = bool(ler_sessionid(arquivo_cookies))
+    except ValueError:
+        tem_sessionid = False
 
+    if tem_sessionid:
+        log(nome, "Entrando pelo cookie...")
+        cl = login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao)
+    else:
+        creds = ler_usuario_senha(arquivo_cookies)
+        if not creds["senha"]:
+            raise ValueError('O arquivo não tem "sessionid" nem usuário/senha')
+        usuario = creds["usuario"] or nome
+        arquivo_sessao = PASTA_SESSOES / f"senha_{usuario}.json"
+        log(nome, "Sem sessionid no arquivo; entrando com usuário e senha...")
+        cl = login_por_senha(nome, usuario, creds["senha"], proxy, arquivo_sessao)
+
+    log(nome, f"Logado como @{cl.username}" if cl.username else "Logado.")
     enviar_story(cl, nome, imagem, link, area, destaque, arquivo_sessao)
 
 

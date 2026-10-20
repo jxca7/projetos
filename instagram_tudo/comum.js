@@ -66,6 +66,19 @@ function lerListaCookies(arquivo) {
   const texto = fs.readFileSync(arquivo, 'utf8').replace(/^\uFEFF/, '').trim();
   if (!texto) throw new Error('O arquivo de cookies está vazio');
 
+  // Formato com rótulos (Usuário:/Senha:/Dispositivo:/Cookie: ...): usa só o que vem depois de "Cookie:"
+  const mRotulo = texto.match(/^[ \t]*cookie[ \t]*:[ \t]*(.+)$/im);
+  if (mRotulo) {
+    return mRotulo[1]
+      .split(/;\s*|\r?\n/)
+      .map((p) => p.trim())
+      .filter((p) => p.includes('='))
+      .map((p) => {
+        const i = p.indexOf('=');
+        return { name: p.slice(0, i).trim(), value: p.slice(i + 1).trim(), domain: '.instagram.com' };
+      });
+  }
+
   if (texto.startsWith('[') || texto.startsWith('{')) {
     let bruto;
     try {
@@ -123,6 +136,26 @@ function lerCookies(arquivo) {
 
   if (!cookies.some((c) => c.name === 'sessionid')) throw new Error('O arquivo não tem o cookie "sessionid"');
   return cookies;
+}
+
+// Lê usuário e senha de um arquivo com rótulos (Usuário:/Senha:). Vazio se não achar.
+function lerUsuarioSenha(arquivo) {
+  let texto = '';
+  try {
+    texto = fs.readFileSync(arquivo, 'utf8').replace(/^﻿/, '');
+  } catch {
+    return { usuario: '', senha: '' };
+  }
+  const pega = (res) => {
+    for (const re of res) {
+      const m = texto.match(re);
+      if (m && m[1].trim()) return m[1].trim();
+    }
+    return '';
+  };
+  const usuario = pega([/^[ \t]*usu[aá]rio[ \t]*:[ \t]*(.+)$/im, /^[ \t]*user(?:name)?[ \t]*:[ \t]*(.+)$/im]).replace(/^@/, '');
+  const senha = pega([/^[ \t]*senha[ \t]*:[ \t]*(.+)$/im, /^[ \t]*pass(?:word)?[ \t]*:[ \t]*(.+)$/im]);
+  return { usuario, senha };
 }
 
 // Quais cookies faltam para funcionar bem (além do sessionid)
@@ -229,6 +262,7 @@ module.exports = {
   lerTexto,
   lerListaCookies,
   lerCookies,
+  lerUsuarioSenha,
   cookiesFaltando,
   cookiesNaPasta,
   moverCookie,
