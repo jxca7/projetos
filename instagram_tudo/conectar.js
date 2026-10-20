@@ -381,26 +381,11 @@ async function clicarContinuarComo(page) {
 }
 
 async function fazerLogin(page, conta, nome) {
-  // MODO COOKIE: o OAuth só reconhece a sessão se a página de autorização for carregada JÁ com o
-  // cookie. Então coloca o cookie AQUI (já estando no instagram.com do OAuth) e recarrega a página,
-  // para ela abrir logada e ir direto pro "Continuar como"/Permitir, sem pedir senha.
-  if (conta.modo === 'cookie' && conta.arquivo) {
-    try {
-      const cookies = lerCookies(conta.arquivo);
-      await page.setCookie(...cookies);
-      log(nome, 'Coloquei o cookie na tela do Instagram e recarreguei...');
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      await pausaHumana(1500, 2500);
-    } catch (e) {
-      log(nome, `AVISO: não deu para recarregar com o cookie (${e.message}). Seguindo...`);
-    }
-  }
-
-  // Depois do "Conectar Instagram", a tela do Instagram pode ser:
-  //  - botão "Continuar como @fulano": já está logado pelo cookie, é só confirmar (sem senha)
-  //  - já é uma tela do fluxo (Mudar/Permitir): segue direto
-  //  - campo de login: no modo cookie, tenta senha de reserva; no modo senha, digita usuário e senha
-  const prazo = Date.now() + (conta.modo === 'cookie' ? 20000 : 30000);
+  // A tela de "Conectar Instagram" desse site SEMPRE pede usuário e senha (não aproveita cookie).
+  // Então aqui a gente trata:
+  //  - já é uma tela do fluxo (Mudar/Permitir): segue direto (raro)
+  //  - campo de login: digita usuário e senha (no modo cookie, pega a senha do arquivo/contas.txt)
+  const prazo = Date.now() + 30000;
   while (Date.now() < prazo) {
     if (await clicarContinuarComo(page)) {
       log(nome, 'Cliquei em "Continuar como" (entrou pela sessão do cookie).');
@@ -413,13 +398,6 @@ async function fazerLogin(page, conta, nome) {
     const campoUsuario = await page.$('input[name="username"], input[name="email"]').catch(() => null);
     if (campoUsuario) {
       if (conta.modo === 'cookie') {
-        // às vezes o "Continuar como" demora um pouco para aparecer; dá uma última chance
-        await esperar(2000);
-        if (await clicarContinuarComo(page)) {
-          log(nome, 'Cliquei em "Continuar como".');
-          return;
-        }
-        // Esse site abre um login próprio no "Conectar" e não aproveita o cookie.
         // Entra com usuário e senha: primeiro do próprio arquivo da conta (formato com rótulos
         // Usuário:/Senha:), senão do contas.txt pelo @usuário da conta.
         let user = (conta.usuarioReal || conta.usuario || '').replace(/^@/, '');
@@ -433,7 +411,7 @@ async function fazerLogin(page, conta, nome) {
         }
         if (!senha) senha = lerMapaSenhas().get(user.toLowerCase());
         if (senha) {
-          log(nome, `A tela de "Conectar" pediu login; entrando com @${user} e senha (do contas.txt)...`);
+          log(nome, `A tela de "Conectar" pediu login; entrando com @${user} e senha...`);
           await loginComSenha(page, { modo: 'senha', usuario: user, senha }, nome, campoUsuario);
           return;
         }
