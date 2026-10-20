@@ -381,10 +381,25 @@ async function clicarContinuarComo(page) {
 }
 
 async function fazerLogin(page, conta, nome) {
+  // MODO COOKIE: o OAuth só reconhece a sessão se a página de autorização for carregada JÁ com o
+  // cookie. Então coloca o cookie AQUI (já estando no instagram.com do OAuth) e recarrega a página,
+  // para ela abrir logada e ir direto pro "Continuar como"/Permitir, sem pedir senha.
+  if (conta.modo === 'cookie' && conta.arquivo) {
+    try {
+      const cookies = lerCookies(conta.arquivo);
+      await page.setCookie(...cookies);
+      log(nome, 'Coloquei o cookie na tela do Instagram e recarreguei...');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await pausaHumana(1500, 2500);
+    } catch (e) {
+      log(nome, `AVISO: não deu para recarregar com o cookie (${e.message}). Seguindo...`);
+    }
+  }
+
   // Depois do "Conectar Instagram", a tela do Instagram pode ser:
   //  - botão "Continuar como @fulano": já está logado pelo cookie, é só confirmar (sem senha)
   //  - já é uma tela do fluxo (Mudar/Permitir): segue direto
-  //  - campo de login: no modo cookie é problema; no modo senha, digita usuário e senha
+  //  - campo de login: no modo cookie, tenta senha de reserva; no modo senha, digita usuário e senha
   const prazo = Date.now() + (conta.modo === 'cookie' ? 20000 : 30000);
   while (Date.now() < prazo) {
     if (await clicarContinuarComo(page)) {
@@ -576,7 +591,7 @@ async function conectarConta(browser, site, conta) {
   await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9' });
   try {
     await limparLoginInstagram(page);
-    if (conta.modo === 'cookie') await injetarCookies(page, conta, nome);
+    // Não coloca o cookie aqui (antes): ele é colocado na tela do Instagram do OAuth, dentro do fazerLogin.
     await clicarConectar(page, site, nome);
     await fazerLogin(page, conta, nome);
     await passarTelas(page, nome);
