@@ -127,7 +127,7 @@ async function rodar() {
           }
         } catch {}
       }
-      if (i < contas.length - 1) await esperar(3000 + Math.random() * 3000);
+      if (i < contas.length - 1) await esperar(1200 + Math.random() * 1500);
     }
   } finally {
     console.log('\n===== RESUMO (tudo de uma vez) =====');

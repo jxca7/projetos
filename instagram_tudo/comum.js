@@ -14,7 +14,7 @@ const SUB_2FA = 'precisa_2fa';
 // ---------- pausas ----------
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 // VELOCIDADE: multiplica todas as pausas. 1 = devagar (mais "humano"), 0.3 = rápido.
-const VELOCIDADE = 0.6;
+const VELOCIDADE = 0.35;
 const pausaHumana = (min = 800, max = 2000) => esperar((min + Math.random() * (max - min)) * VELOCIDADE);
 
 // ---------- jeito humano ----------
@@ -27,10 +27,10 @@ async function cliqueHumano(page, el) {
     if (!box) return await el.click();
     const x = box.x + box.width * (0.3 + Math.random() * 0.4);
     const y = box.y + box.height * (0.3 + Math.random() * 0.4);
-    await page.mouse.move(x, y, { steps: 8 + Math.floor(Math.random() * 15) });
-    await esperar(60 + Math.random() * 180);
+    await page.mouse.move(x, y, { steps: 4 + Math.floor(Math.random() * 7) });
+    await esperar(25 + Math.random() * 70);
     await page.mouse.down();
-    await esperar(40 + Math.random() * 90);
+    await esperar(15 + Math.random() * 45);
     await page.mouse.up();
   } catch {
     await el.click().catch(() => {});
@@ -41,7 +41,7 @@ async function cliqueHumano(page, el) {
 async function digitarHumano(el, texto) {
   for (const letra of texto) {
     await el.type(letra);
-    await esperar(Math.random() < 0.06 ? 250 + Math.random() * 350 : 40 + Math.random() * 110);
+    await esperar(Math.random() < 0.04 ? 120 + Math.random() * 180 : 12 + Math.random() * 45);
   }
 }
 

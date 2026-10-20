@@ -425,7 +425,7 @@ async function rodar() {
       }
       resultado.push(`✘ ${nome}: ${err.message}${err.semBio ? ' (perfil SEM BIO)' : ''}`);
     }
-    if (i < arquivos.length - 1) await esperar(3000 + Math.random() * 3000);
+    if (i < arquivos.length - 1) await esperar(1200 + Math.random() * 1500);
   }
 
   console.log('\n===== RESUMO (foto/bio) =====');
