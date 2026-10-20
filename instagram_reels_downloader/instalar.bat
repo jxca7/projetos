@@ -48,8 +48,17 @@ echo [2/3] ffmpeg OK
 
 rem ---------- bibliotecas ----------
 echo [3/3] Instalando bibliotecas...
+rem se o ambiente existir mas o pip estiver quebrado, apaga e recria
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+    if errorlevel 1 (
+        echo       ambiente Python com defeito, recriando...
+        rmdir /s /q .venv
+    )
+)
 if not exist ".venv\Scripts\python.exe" "%PY%" -m venv .venv
-".venv\Scripts\python.exe" -m pip install -q --upgrade pip
+".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+if errorlevel 1 ".venv\Scripts\python.exe" -m ensurepip --upgrade
 ".venv\Scripts\python.exe" -m pip install -q -r requirements.txt
 if errorlevel 1 (
     echo ERRO ao instalar as bibliotecas.
