@@ -134,9 +134,10 @@ def tocar_primeiro(d, seletores, timeout=8):
 # Se algum passo falhar, o print em passos/ mostra a tela e a gente corrige o seletor aqui.
 SEL = {
     "abrir_story": [
-        {"description": "Câmara"}, {"descriptionContains": "Câmara"},
-        {"descriptionContains": "story"}, {"descriptionContains": "história"},
-        {"text": "A tua nota"}, {"descriptionContains": "Camera"},
+        {"text": "A tua história"}, {"descriptionContains": "A tua história"},
+        {"text": "Adicionar à história"}, {"descriptionContains": "tua história"},
+        {"description": "Câmara"}, {"descriptionContains": "Criar"},
+        {"descriptionContains": "história"},
     ],
     "galeria": [
         {"descriptionContains": "Galeria"}, {"descriptionContains": "galeria"},
