@@ -28,7 +28,8 @@ Antes de postar, preciso ver a tela do seu Instagram, porque os botões mudam po
 1. Coloque a imagem como **`imagem.jpg`** nesta pasta.
 2. No **`link.txt`**: 1a linha o link, 2a linha (opcional) o texto da figurinha.
 3. (Opcional) **`clones.txt`**: quais clones (ex.: `1-10` ou `1,3,5`). Vazio = todos.
-4. Dois cliques no **`rodar.bat`** e digite **`postar`**.
+4. (Opcional) **`destaque.txt`**: nome do destaque. Se preencher, ele adiciona o story ao destaque.
+5. Dois cliques no **`rodar.bat`** e digite **`postar`**.
 
 Esta primeira versao tira um **print de cada passo** na pasta **`passos/`**. Rode em 1 clone,
 depois me mande a pasta `passos/` para eu acertar os cliques que faltam (abrir story, escolher

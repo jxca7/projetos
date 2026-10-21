@@ -133,7 +133,53 @@ SEL = {
         {"text": "Sua história"}, {"descriptionContains": "Sua história"},
         {"text": "Partilhar"}, {"text": "Compartilhar"}, {"descriptionContains": "história"},
     ],
+    # --- destaque (adicionar ao destaque) ---
+    "ir_perfil": [{"description": "Perfil"}, {"descriptionContains": "Perfil"}, {"descriptionContains": "perfil"}],
+    "meu_story": [
+        {"descriptionContains": "A tua nota"}, {"descriptionContains": "tua história"},
+        {"descriptionContains": "sua história"}, {"descriptionContains": "A tua história"},
+    ],
+    "destacar": [
+        {"text": "Destacar"}, {"descriptionContains": "Destacar"},
+        {"text": "Adicionar ao destaque"}, {"descriptionContains": "destaque"}, {"text": "Highlight"},
+    ],
+    "novo_destaque": [{"text": "Novo"}, {"textStartsWith": "Novo"}, {"descriptionContains": "Novo destaque"}],
+    "confirmar_destaque": [
+        {"text": "Adicionar"}, {"text": "Seguinte"}, {"text": "Concluído"}, {"text": "Done"}, {"text": "Guardar"},
+    ],
 }
+
+
+def destacar_em(d, base, destaque):
+    """Adiciona o story recém-postado a um destaque chamado 'destaque'."""
+    print(f"[{base}] destacando em '{destaque}'...")
+    time.sleep(4)
+    # abre o seu próprio story (fica em cima, "A tua nota/história"); se não, tenta pelo perfil
+    if not tocar_primeiro(d, SEL["meu_story"], timeout=8):
+        tocar_primeiro(d, SEL["ir_perfil"], timeout=6)
+        time.sleep(2)
+        tocar_primeiro(d, SEL["meu_story"], timeout=6)
+    time.sleep(3)
+    _shot(d, f"{base}_08_meu_story")
+    if not tocar_primeiro(d, SEL["destacar"], timeout=8):
+        _shot(d, f"{base}_erro_destacar")
+        raise RuntimeError('não achei o botão "Destacar" (veja o print)')
+    time.sleep(2)
+    _shot(d, f"{base}_09_destaques")
+    # se já existe um destaque com esse nome, toca nele; senão cria "Novo"
+    if d(text=destaque).exists:
+        d(text=destaque).click()
+    else:
+        tocar_primeiro(d, SEL["novo_destaque"], timeout=5)
+        time.sleep(2)
+        campo = d(className="android.widget.EditText")
+        if campo.exists:
+            campo.set_text(destaque)
+            time.sleep(1)
+    tocar_primeiro(d, SEL["confirmar_destaque"], timeout=6)
+    time.sleep(2)
+    _shot(d, f"{base}_10_destacado")
+    print(f"[{base}] destaque OK (confira o print 10)")
 
 
 def postar_em(d, label, link, rotulo):
@@ -192,7 +238,15 @@ def postar_em(d, label, link, rotulo):
         raise RuntimeError("não achei o botão de compartilhar (veja o print)")
     time.sleep(6)
     _shot(d, f"{base}_07_fim")
-    print(f"[{base}] OK ✔ (confira o print 07 para ter certeza)")
+    print(f"[{base}] story postado (confira o print 07)")
+
+    destaque = ler_texto(PASTA / "destaque.txt")
+    if destaque:
+        try:
+            destacar_em(d, base, destaque)
+        except Exception as e:
+            print(f"[{base}] AVISO: não consegui destacar ({e}). O story foi postado mesmo assim.")
+    print(f"[{base}] OK ✔")
 
 
 def main():
