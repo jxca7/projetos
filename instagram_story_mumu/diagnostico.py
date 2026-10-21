@@ -36,11 +36,25 @@ ADB_MUMU = [
 
 
 def achar_adb():
+    # 1) caminho forçado por você:  set ADB=C:\...\adb.exe
+    env = os.environ.get("ADB")
+    if env and Path(env).exists():
+        return env
+    # 2) adb no PATH
     if shutil.which("adb"):
         return "adb"
-    for p in ADB_MUMU:
-        if Path(p).exists():
-            return p
+    # 3) adb copiado para a MESMA pasta deste script (jeito mais fácil: cole o adb.exe aqui)
+    if (PASTA / "adb.exe").exists():
+        return str(PASTA / "adb.exe")
+    # 4) lugares comuns onde o platform-tools é baixado, e o adb do próprio MuMu
+    user = Path(os.path.expanduser("~"))
+    comuns = []
+    for base in (user / "Documents", user / "Downloads", user / "Desktop", user / "OneDrive" / "Documents"):
+        comuns += [base / "platform-tools" / "platform-tools" / "adb.exe", base / "platform-tools" / "adb.exe"]
+    comuns += [Path(p) for p in ADB_MUMU]
+    for p in comuns:
+        if p.exists():
+            return str(p)
     return "adb"  # última tentativa; se não existir, o erro aparece adiante
 
 
@@ -76,8 +90,10 @@ def conectar():
         print("\nNão achei o MuMu. Confira:")
         print("  1) O MuMu está ABERTO.")
         print("  2) Em Opções do desenvolvedor, 'Depuração ADB' = Habilitar conexão local (e reinicie o MuMu).")
-        print("  3) O 'adb' está instalado (Android platform-tools) ou o MuMu instalado no caminho padrão.")
-        print("  Se souber a porta, rode:  set MUMU_ADB=127.0.0.1:PORTA  e tente de novo.")
+        print("  3) O 'adb.exe' precisa ser encontrado. O jeito mais fácil: copie o adb.exe")
+        print("     (da pasta platform-tools) para a MESMA pasta deste script.")
+        print("     Ou aponte o caminho:  set ADB=C:\\caminho\\para\\adb.exe")
+        print("  Se souber a porta do MuMu, rode:  set MUMU_ADB=127.0.0.1:PORTA  e tente de novo.")
         sys.exit(1)
     print(f"Achei o aparelho: {addr}. Conectando...")
     try:
