@@ -62,14 +62,32 @@ function lerTexto(arquivo) {
 //   - JSON (Cookie-Editor / EditThisCookie): [{"name": ..., "value": ...}]
 //   - Netscape (cookies.txt): linhas separadas por TAB
 //   - Texto simples: sessionid=...; csrftoken=...; ds_user_id=...
+//   - Com | (usuario:senha|UserAgent|TechData|Cookie)
+
+// Se o arquivo embute o cookie com outras coisas, devolve só a parte do cookie; senão null.
+function extrairCookieTexto(texto) {
+  // rótulo "Cookie: ..." (uma das linhas)
+  const mRotulo = texto.match(/^[ \t]*cookie[ \t]*:[ \t]*(.+)$/im);
+  if (mRotulo) return mRotulo[1];
+  // formato com | : acha o campo que tem o cookie (o que tem sessionid, ou que pareça name=value;)
+  if (texto.includes('|')) {
+    const campos = texto.split('|');
+    const comCookie = campos.find((c) => /(^|;|\s)sessionid=/i.test(c)) || campos.find((c) => /[a-z_]+=[^;|]+;/i.test(c));
+    if (comCookie) return comCookie;
+  }
+  return null;
+}
+
 function lerListaCookies(arquivo) {
   const texto = fs.readFileSync(arquivo, 'utf8').replace(/^\uFEFF/, '').trim();
   if (!texto) throw new Error('O arquivo de cookies está vazio');
 
-  // Formato com rótulos (Usuário:/Senha:/Dispositivo:/Cookie: ...): usa só o que vem depois de "Cookie:"
-  const mRotulo = texto.match(/^[ \t]*cookie[ \t]*:[ \t]*(.+)$/im);
-  if (mRotulo) {
-    return mRotulo[1]
+  // Formatos que embutem o cookie junto de outras coisas:
+  //  - rótulos  (Usuário:/Senha:/Dispositivo:/Cookie: ...)  -> usa o que vem depois de "Cookie:"
+  //  - com |    (usuario:senha|UserAgent|TechData|Cookie)   -> usa o campo que tem o cookie
+  const corpo = extrairCookieTexto(texto);
+  if (corpo !== null) {
+    return corpo
       .split(/;\s*|\r?\n/)
       .map((p) => p.trim())
       .filter((p) => p.includes('='))
@@ -153,8 +171,17 @@ function lerUsuarioSenha(arquivo) {
     }
     return '';
   };
-  const usuario = pega([/^[ \t]*usu[aá]rio[ \t]*:[ \t]*(.+)$/im, /^[ \t]*user(?:name)?[ \t]*:[ \t]*(.+)$/im]).replace(/^@/, '');
-  const senha = pega([/^[ \t]*senha[ \t]*:[ \t]*(.+)$/im, /^[ \t]*pass(?:word)?[ \t]*:[ \t]*(.+)$/im]);
+  let usuario = pega([/^[ \t]*usu[aá]rio[ \t]*:[ \t]*(.+)$/im, /^[ \t]*user(?:name)?[ \t]*:[ \t]*(.+)$/im]).replace(/^@/, '');
+  let senha = pega([/^[ \t]*senha[ \t]*:[ \t]*(.+)$/im, /^[ \t]*pass(?:word)?[ \t]*:[ \t]*(.+)$/im]);
+  // Formato com | : o 1º campo é usuario:senha
+  if ((!usuario || !senha) && texto.includes('|')) {
+    const campo0 = texto.split('|')[0].trim();
+    const m = campo0.match(/^@?([^:\s]+):(.+)$/);
+    if (m) {
+      if (!usuario) usuario = m[1];
+      if (!senha) senha = m[2].trim();
+    }
+  }
   return { usuario, senha };
 }
 

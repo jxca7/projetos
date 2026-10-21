@@ -13,13 +13,18 @@ Instale o **Node.js LTS** (https://nodejs.org). O Microsoft Edge já vem no Wind
 Clique duas vezes em **`rodar.bat`**. Vai aparecer um menu — digite o número da tarefa e tecle Enter.
 
 Os **cookies ficam todos na pasta `cookies/`** (um arquivo por conta, nome qualquer).
-Formatos aceitos: JSON (Cookie-Editor), `cookies.txt`, texto `sessionid=...; csrftoken=...; ds_user_id=...`
-ou o formato com **rótulos** (tudo num arquivo só):
+Formatos aceitos: JSON (Cookie-Editor), `cookies.txt`, texto `sessionid=...; csrftoken=...; ds_user_id=...`,
+o formato com **rótulos** (tudo num arquivo só):
 ```
 Usuário: fulano
 Senha: suasenha
 Cookie: mid=...;sessionid=...;csrftoken=...;ds_user_id=...
 ```
+ou o formato **com `|`** (combo de conta), numa linha só:
+```
+usuario:senha|UserAgent|TechData|mid=...;sessionid=...;csrftoken=...;ds_user_id=...
+```
+Nos dois últimos, o `usuario:senha` é usado no login do "Conectar" e, no story, como reserva.
 O cookie precisa ter **sessionid, csrftoken e ds_user_id** — só o sessionid não basta. No formato com
 rótulos, o `Usuário:`/`Senha:` é usado no login do "Conectar" (que pede senha) e, no story, serve de
 reserva: se o `Cookie:` não tiver `sessionid`, ele entra por usuário e senha.

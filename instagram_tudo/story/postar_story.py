@@ -115,9 +115,20 @@ def ler_link():
 
 
 def _texto_dos_cookies(texto):
-    """Se o arquivo usa rótulos (Usuário:/Senha:/Cookie: ...), devolve só o que vem depois de 'Cookie:'."""
+    """Devolve só a parte do cookie quando o arquivo embute o cookie com outras coisas:
+    rótulo 'Cookie: ...' ou formato com | (usuario:senha|UserAgent|TechData|Cookie)."""
     m = re.search(r"^[ \t]*cookie[ \t]*:[ \t]*(.+)$", texto, re.IGNORECASE | re.MULTILINE)
-    return m.group(1) if m else texto
+    if m:
+        return m.group(1)
+    if "|" in texto:
+        campos = texto.split("|")
+        for campo in campos:
+            if re.search(r"(^|;|\s)sessionid=", campo, re.IGNORECASE):
+                return campo
+        for campo in campos:
+            if re.search(r"[a-z_]+=[^;|]+;", campo, re.IGNORECASE):
+                return campo
+    return texto
 
 
 def ler_usuario_senha(arquivo):
@@ -136,6 +147,13 @@ def ler_usuario_senha(arquivo):
 
     usuario = pega([r"^[ \t]*usu[aá]rio[ \t]*:[ \t]*(.+)$", r"^[ \t]*user(?:name)?[ \t]*:[ \t]*(.+)$"]).lstrip("@")
     senha = pega([r"^[ \t]*senha[ \t]*:[ \t]*(.+)$", r"^[ \t]*pass(?:word)?[ \t]*:[ \t]*(.+)$"])
+    # Formato com | : o 1º campo é usuario:senha
+    if (not usuario or not senha) and "|" in texto:
+        campo0 = texto.split("|")[0].strip()
+        m = re.match(r"^@?([^:\s]+):(.+)$", campo0)
+        if m:
+            usuario = usuario or m.group(1)
+            senha = senha or m.group(2).strip()
     return {"usuario": usuario, "senha": senha}
 
 
