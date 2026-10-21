@@ -87,6 +87,33 @@ def _shot(d, nome):
         pass
 
 
+# Botões de pop-up que aparecem do nada (notificações, câmera, galeria, "guardar login"...).
+# A gente toca em PERMITIR (libera câmera/galeria/notificação) ou fecha o aviso e segue.
+BOTOES_POPUP = [
+    {"text": "PERMITIR"}, {"text": "Permitir"}, {"text": "ALLOW"}, {"text": "Allow"},
+    {"textContains": "Durante a utiliza"}, {"textContains": "Ao utilizar"}, {"textContains": "While using"},
+    {"text": "Agora não"}, {"text": "AGORA NÃO"}, {"text": "Not now"}, {"text": "NÃO PERMITIR"},
+]
+
+
+def fechar_popups(d, vezes=4):
+    """Fecha pop-ups de permissão/aviso que aparecerem (pode ter mais de um empilhado)."""
+    for _ in range(vezes):
+        achou = False
+        for sel in BOTOES_POPUP:
+            try:
+                el = d(**sel)
+                if el.exists:
+                    el.click()
+                    achou = True
+                    time.sleep(0.8)
+                    break
+            except Exception:
+                pass
+        if not achou:
+            return
+
+
 def tocar_primeiro(d, seletores, timeout=8):
     """Toca no primeiro seletor que existir. seletores = lista de dicts (kwargs do uiautomator2)."""
     fim = time.time() + timeout
@@ -190,6 +217,7 @@ def postar_em(d, label, link, rotulo):
     if not tocar_primeiro(d, [{"text": label}, {"textStartsWith": base + " "}], timeout=8):
         raise RuntimeError("não achei o ícone do clone na tela inicial")
     time.sleep(7)  # o app abrir
+    fechar_popups(d)  # pop-up de notificação que aparece ao abrir
     _shot(d, f"{base}_01_abriu")
 
     print(f"[{base}] abrindo a câmera de story...")
@@ -197,11 +225,13 @@ def postar_em(d, label, link, rotulo):
         _shot(d, f"{base}_erro_abrir_story")
         raise RuntimeError("não achei como abrir a câmera de story (veja o print)")
     time.sleep(3)
+    fechar_popups(d)  # permissão de câmera
     _shot(d, f"{base}_02_camera")
 
     print(f"[{base}] escolhendo a foto...")
     tocar_primeiro(d, SEL["galeria"], timeout=6)
     time.sleep(2)
+    fechar_popups(d)  # permissão de fotos/galeria
     _shot(d, f"{base}_03_galeria")
     # toca na primeira foto da galeria (a imagem que empurramos fica entre as mais recentes)
     tocar_primeiro(d, [{"descriptionContains": "Foto de"}, {"resourceIdMatches": ".*gallery_grid.*"}], timeout=6)
