@@ -20,8 +20,13 @@ if errorlevel 1 (
 echo.
 echo Deixe o MuMu ABERTO e com a Depuracao ADB ligada (Habilitar conexao local).
 echo.
+echo O que fazer? Digite a opcao e tecle Enter:
+echo    home   = fotografar a TELA INICIAL do MuMu (os icones dos clones)
+echo    agora  = fotografar a TELA ABERTA agora (ex.: dentro de um clone)
+echo    (vazio)= so listar os apps
+echo.
 set "pkg="
-set /p pkg=Cole o pacote do clone e tecle Enter (ou so tecle Enter para LISTAR os apps):
+set /p pkg=Opcao:
 
 %PY% diagnostico.py %pkg%
 

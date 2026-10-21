@@ -9,6 +9,7 @@
 # Se quiser forçar uma:  set MUMU_ADB=127.0.0.1:SUAPORTA   (antes de rodar)
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -122,26 +123,58 @@ def listar_apps(d):
     print("\nPara ver a tela de um app:  python diagnostico.py <pacote>")
 
 
+def _salvar(d, base):
+    png = PASTA / f"{base}.png"
+    xml = PASTA / f"{base}.xml"
+    d.screenshot(str(png))
+    xml.write_text(d.dump_hierarchy(), encoding="utf-8")
+    print(f"\nSalvei: {png.name} e {xml.name} — me mande esses dois arquivos.")
+    return xml.read_text(encoding="utf-8")
+
+
+def _icones(xml_text):
+    textos = re.findall(r'text="([^"]+)"', xml_text) + re.findall(r'content-desc="([^"]+)"', xml_text)
+    alvos = [t.strip() for t in textos if t.strip() and re.search(r"insta|#\s*n?\d", t, re.I)]
+    return sorted(set(alvos))
+
+
+def mapear_home(d):
+    print("Indo para a tela inicial do MuMu...")
+    d.press("home")
+    time.sleep(2)
+    xml = _salvar(d, "home")
+    icones = _icones(xml)
+    print("\nÍcones parecidos com os clones encontrados na tela:")
+    for t in (icones or ["(não achei textos de ícone — me mande o home.png que eu vejo pelo print)"]):
+        print("  ", t)
+
+
+def capturar_atual(d):
+    print("Capturando a tela que está aberta agora...")
+    time.sleep(1)
+    print("App atual:", d.app_current())
+    _salvar(d, "tela")
+
+
 def mapear(d, pacote):
     print(f"Abrindo {pacote} ...")
     d.app_start(pacote, wait=True)
     time.sleep(4)
     print("App atual:", d.app_current())
-    png = PASTA / "tela.png"
-    xml = PASTA / "tela.xml"
-    d.screenshot(str(png))
-    xml.write_text(d.dump_hierarchy(), encoding="utf-8")
-    print(f"Print salvo em: {png}")
-    print(f"Mapa da tela salvo em: {xml}")
-    print("\nMe mande esses dois arquivos (tela.png e tela.xml) para eu calibrar os toques.")
+    _salvar(d, "tela")
 
 
 def main():
     d = conectar()
-    if len(sys.argv) > 1:
-        mapear(d, sys.argv[1])
-    else:
+    arg = (sys.argv[1] if len(sys.argv) > 1 else "").strip().lower()
+    if not arg:
         listar_apps(d)
+    elif arg in ("home", "inicio", "início", "tela-inicial"):
+        mapear_home(d)
+    elif arg in ("agora", "tela", "atual"):
+        capturar_atual(d)
+    else:
+        mapear(d, sys.argv[1])
 
 
 if __name__ == "__main__":
