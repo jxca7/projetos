@@ -90,6 +90,7 @@ def _shot(d, nome):
 # Botões de pop-up que aparecem do nada (notificações, câmera, galeria, "guardar login"...).
 # A gente toca em PERMITIR (libera câmera/galeria/notificação) ou fecha o aviso e segue.
 BOTOES_POPUP = [
+    {"textContains": "Permitir todos"}, {"textContains": "PERMITIR TODOS"}, {"textContains": "Allow all"},
     {"text": "PERMITIR"}, {"text": "Permitir"}, {"text": "ALLOW"}, {"text": "Allow"},
     {"textContains": "Durante a utiliza"}, {"textContains": "Ao utilizar"}, {"textContains": "While using"},
     {"text": "Agora não"}, {"text": "AGORA NÃO"}, {"text": "Not now"}, {"text": "NÃO PERMITIR"},
@@ -133,36 +134,41 @@ def tocar_primeiro(d, seletores, timeout=8):
 # ---- Os CLIQUES do Instagram (em português). O que eu não vi ainda está com palpite + fallback. ----
 # Se algum passo falhar, o print em passos/ mostra a tela e a gente corrige o seletor aqui.
 SEL = {
-    "abrir_story": [
-        {"text": "A tua história"}, {"descriptionContains": "A tua história"},
-        {"text": "Adicionar à história"}, {"descriptionContains": "tua história"},
-        {"description": "Câmara"}, {"descriptionContains": "Criar"},
-        {"descriptionContains": "história"},
+    "agora_nao": [{"text": "Agora não"}, {"text": "AGORA NÃO"}, {"text": "Not now"}],
+    # perfil no canto inferior direito (barra de baixo)
+    "perfil_tab": [
+        {"description": "Perfil"}, {"description": "Separador de perfil"},
+        {"descriptionContains": "Perfil"}, {"descriptionContains": "perfil"},
     ],
-    "galeria": [
-        {"descriptionContains": "Galeria"}, {"descriptionContains": "galeria"},
-        {"resourceIdMatches": ".*gallery.*"}, {"descriptionContains": "rolo"},
+    # "+" na foto de perfil (abre a câmera de story)
+    "mais_perfil": [
+        {"descriptionContains": "Adicionar à história"}, {"descriptionContains": "Adicionar"},
+        {"descriptionContains": "Criar"}, {"descriptionContains": "nota"}, {"descriptionContains": "história"},
+    ],
+    # a única foto da galeria
+    "primeira_foto": [
+        {"descriptionContains": "Foto de"}, {"descriptionStartsWith": "Foto"},
+        {"descriptionContains": "Imagem"}, {"resourceIdMatches": ".*gallery.*"},
     ],
     "sticker_botao": [
-        {"description": "Autocolante"}, {"description": "Autocolantes"},
-        {"description": "Sticker"}, {"descriptionContains": "Autocolante"},
-        {"descriptionContains": "Sticker"},
+        {"description": "Autocolante"}, {"description": "Autocolantes"}, {"description": "Sticker"},
+        {"descriptionContains": "Autocolante"}, {"descriptionContains": "Sticker"},
     ],
     "sticker_link": [
-        {"description": "Sticker de ligação"}, {"descriptionContains": "ligação"},
-        {"descriptionContains": "Link"},
+        {"description": "Sticker de ligação"}, {"descriptionContains": "ligação"}, {"descriptionContains": "Link"},
+    ],
+    "personalizar": [
+        {"textContains": "Personalizar"}, {"descriptionContains": "Personalizar"},
     ],
     "concluir": [
-        {"text": "Concluído"}, {"text": "Concluir"}, {"text": "Done"},
-        {"descriptionContains": "Concluído"},
+        {"text": "Concluído"}, {"text": "Concluir"}, {"text": "Done"}, {"descriptionContains": "Concluído"},
     ],
     "compartilhar": [
         {"text": "A tua história"}, {"descriptionContains": "A tua história"},
-        {"text": "Sua história"}, {"descriptionContains": "Sua história"},
-        {"text": "Partilhar"}, {"text": "Compartilhar"}, {"descriptionContains": "história"},
+        {"text": "Partilhar"}, {"text": "Compartilhar"}, {"descriptionContains": "Partilhar"},
+        {"descriptionContains": "Enviar"}, {"descriptionContains": "história"},
     ],
     # --- destaque (adicionar ao destaque) ---
-    "ir_perfil": [{"description": "Perfil"}, {"descriptionContains": "Perfil"}, {"descriptionContains": "perfil"}],
     "meu_story": [
         {"descriptionContains": "A tua nota"}, {"descriptionContains": "tua história"},
         {"descriptionContains": "sua história"}, {"descriptionContains": "A tua história"},
@@ -184,7 +190,7 @@ def destacar_em(d, base, destaque):
     time.sleep(4)
     # abre o seu próprio story (fica em cima, "A tua nota/história"); se não, tenta pelo perfil
     if not tocar_primeiro(d, SEL["meu_story"], timeout=8):
-        tocar_primeiro(d, SEL["ir_perfil"], timeout=6)
+        tocar_primeiro(d, SEL["perfil_tab"], timeout=6)
         time.sleep(2)
         tocar_primeiro(d, SEL["meu_story"], timeout=6)
     time.sleep(3)
@@ -210,36 +216,62 @@ def destacar_em(d, base, destaque):
     print(f"[{base}] destaque OK (confira o print 10)")
 
 
+def _set_edit(d, texto):
+    """Escreve num campo de texto visível (o que estiver focado, ou o último)."""
+    try:
+        campo = d(className="android.widget.EditText", focused=True)
+        if not campo.exists:
+            campos = d(className="android.widget.EditText")
+            campo = campos[campos.count - 1] if campos.count else campos
+        campo.set_text(texto)
+        return True
+    except Exception:
+        return False
+
+
 def postar_em(d, label, link, rotulo):
     base = label.split()[0]  # "#N1"
+
+    # 1) abrir o clone
     print(f"[{base}] abrindo o clone...")
     d.press("home")
     time.sleep(1.5)
     if not tocar_primeiro(d, [{"text": label}, {"textStartsWith": base + " "}], timeout=8):
         raise RuntimeError("não achei o ícone do clone na tela inicial")
-    time.sleep(7)  # o app abrir
-    fechar_popups(d)  # pop-up de notificação que aparece ao abrir
+    time.sleep(8)  # o app abrir / logar
+    fechar_popups(d)  # notificação
+    # 3) "Agora não"
+    tocar_primeiro(d, SEL["agora_nao"], timeout=5)
+    fechar_popups(d)
     _shot(d, f"{base}_01_abriu")
 
-    print(f"[{base}] abrindo a câmera de story...")
-    if not tocar_primeiro(d, SEL["abrir_story"], timeout=10):
-        _shot(d, f"{base}_erro_abrir_story")
-        raise RuntimeError("não achei como abrir a câmera de story (veja o print)")
+    # 4) perfil (canto inferior direito)
+    print(f"[{base}] indo no perfil...")
+    if not tocar_primeiro(d, SEL["perfil_tab"], timeout=10):
+        _shot(d, f"{base}_erro_perfil")
+        raise RuntimeError("não achei o botão do perfil (veja o print)")
     time.sleep(3)
-    fechar_popups(d)  # permissão de câmera
-    _shot(d, f"{base}_02_camera")
+    _shot(d, f"{base}_02_perfil")
 
-    print(f"[{base}] escolhendo a foto...")
-    tocar_primeiro(d, SEL["galeria"], timeout=6)
-    time.sleep(2)
-    fechar_popups(d)  # permissão de fotos/galeria
+    # 5) "+" na foto de perfil -> abre a câmera de story
+    print(f"[{base}] abrindo a câmera de story (+ na foto)...")
+    if not tocar_primeiro(d, SEL["mais_perfil"], timeout=8):
+        _shot(d, f"{base}_erro_mais")
+        raise RuntimeError('não achei o "+" na foto de perfil (veja o print)')
+    time.sleep(3)
+    fechar_popups(d)  # 6) "Permitir todos"
     _shot(d, f"{base}_03_galeria")
-    # toca na primeira foto da galeria (a imagem que empurramos fica entre as mais recentes)
-    tocar_primeiro(d, [{"descriptionContains": "Foto de"}, {"resourceIdMatches": ".*gallery_grid.*"}], timeout=6)
+
+    # 7) a única foto
+    print(f"[{base}] escolhendo a foto...")
+    if not tocar_primeiro(d, SEL["primeira_foto"], timeout=8):
+        _shot(d, f"{base}_erro_foto")
+        raise RuntimeError("não achei a foto para escolher (veja o print)")
     time.sleep(3)
     _shot(d, f"{base}_04_editor")
 
-    print(f"[{base}] abrindo figurinhas e o link...")
+    # 8) figurinha  9) ligação
+    print(f"[{base}] figurinha -> ligação...")
     if not tocar_primeiro(d, SEL["sticker_botao"], timeout=8):
         _shot(d, f"{base}_erro_sticker")
         raise RuntimeError("não achei o botão de figurinhas (veja o print)")
@@ -250,23 +282,30 @@ def postar_em(d, label, link, rotulo):
     time.sleep(2)
     _shot(d, f"{base}_05_link")
 
-    # campo do URL
-    campo = d(className="android.widget.EditText")
-    if campo.exists:
-        campo.set_text(link)
-    else:
+    # 10) colocar o link
+    if not _set_edit(d, link):
         _shot(d, f"{base}_erro_url")
         raise RuntimeError("não achei o campo do link (veja o print)")
     time.sleep(1)
-    # (rótulo personalizado fica para a próxima versão)
+
+    # 11) personalizar texto  12) colocar o texto
+    if rotulo:
+        if tocar_primeiro(d, SEL["personalizar"], timeout=5):
+            time.sleep(1)
+            _set_edit(d, rotulo)
+            time.sleep(1)
+            _shot(d, f"{base}_06_texto")
+
+    # 13) concluído
     tocar_primeiro(d, SEL["concluir"], timeout=6)
     time.sleep(2)
-    _shot(d, f"{base}_06_depois_link")
+    _shot(d, f"{base}_06b_depois_link")
 
-    print(f"[{base}] compartilhando...")
+    # 14) postar
+    print(f"[{base}] postando...")
     if not tocar_primeiro(d, SEL["compartilhar"], timeout=10):
         _shot(d, f"{base}_erro_compartilhar")
-        raise RuntimeError("não achei o botão de compartilhar (veja o print)")
+        raise RuntimeError("não achei o botão de postar (veja o print)")
     time.sleep(6)
     _shot(d, f"{base}_07_fim")
     print(f"[{base}] story postado (confira o print 07)")
