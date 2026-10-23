@@ -65,7 +65,7 @@ except NameError:
     CHROME = False
 ERROS_REDE = (http.exceptions.RequestException,)
 
-VERSAO = "2026-10-16f"
+VERSAO = "2026-10-23a"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 IG = "https://www.instagram.com"
@@ -453,11 +453,28 @@ def formatar_numero(n):
     return str(n)
 
 
-def mais_vistos(s, reels, quantidade, mostrar=True):
-    """Ordena os reels por visualizacoes (maior primeiro) e devolve os `quantidade` primeiros."""
-    sem_numero = [m for m in reels if visualizacoes(m) is None]
+def curtidas(midia):
+    """Numero de curtidas do reel (None se o Instagram nao informar ou o dono ocultar)."""
+    valor = midia.get("like_count")
+    if isinstance(valor, int):
+        return valor
+    valor = (midia.get("edge_media_preview_like") or midia.get("edge_liked_by") or {}).get("count")
+    return valor if isinstance(valor, int) else None
+
+
+# criterio -> (funcao que le o numero, palavra, titulo do ranking, chave na lista salva)
+CRITERIOS = {
+    "vistos": (visualizacoes, "visualizacoes", "Mais visualizados", "play_count"),
+    "curtidos": (curtidas, "curtidas", "Mais curtidos", "like_count"),
+}
+
+
+def ranking(s, reels, quantidade, criterio="vistos", mostrar=True):
+    """Ordena os reels pelo criterio (maior primeiro) e devolve os `quantidade` primeiros."""
+    numero, palavra, titulo, _ = CRITERIOS[criterio]
+    sem_numero = [m for m in reels if numero(m) is None and not m.get("_completo")]
     if sem_numero:
-        log(f"   buscando as visualizacoes de {len(sem_numero)} reels que vieram sem o numero...")
+        log(f"   buscando as {palavra} de {len(sem_numero)} reels que vieram sem o numero...")
         for i, midia in enumerate(sem_numero, 1):
             try:
                 midia.update(info_do_reel(s, midia["code"]))
@@ -465,26 +482,30 @@ def mais_vistos(s, reels, quantidade, mostrar=True):
                 if "429" in str(e):
                     raise
                 log(f"   {midia['code']}: {e}", erro=True)
+            midia["_completo"] = True  # nao busca de novo (ex: dono ocultou as curtidas)
             if i % 10 == 0:
                 log(f"   {i}/{len(sem_numero)}...")
             time.sleep(random.uniform(1.5, 3))
-    ordenados = sorted(reels, key=lambda m: visualizacoes(m) or -1, reverse=True)
+    ordenados = sorted(reels, key=lambda m: numero(m) if numero(m) is not None else -1, reverse=True)
     escolhidos = ordenados[:quantidade] if quantidade else ordenados
     if not mostrar:
         return escolhidos
-    log("   Mais visualizados:")
+    log(f"   {titulo}:")
     for pos, m in enumerate(escolhidos[:20], 1):
-        log(f"   {pos:>3}. {m['code']}  {formatar_numero(visualizacoes(m))} visualizacoes")
+        log(f"   {pos:>3}. {m['code']}  {formatar_numero(numero(m))} {palavra}")
     if len(escolhidos) > 20:
         log(f"   ... e mais {len(escolhidos) - 20}")
+    ocultos = sum(1 for m in escolhidos if numero(m) is None)
+    if ocultos:
+        log(f"   ({ocultos} reels sem o numero de {palavra}: o dono pode ter ocultado. Foram para o fim.)")
     return escolhidos
 
 
 VALIDADE_LISTA = 24 * 3600  # segundos
 
 
-def lista_salva(pasta, analisar):
-    """Lista de reels (codigo + visualizacoes) salva numa execucao anterior, se ainda valer."""
+def lista_salva(pasta, analisar, criterio="vistos"):
+    """Lista de reels (codigo + numeros) salva numa execucao anterior, se ainda valer."""
     arq = pasta / "lista_reels.json"
     try:
         dados = json.loads(arq.read_text(encoding="utf-8"))
@@ -496,6 +517,11 @@ def lista_salva(pasta, analisar):
     if dados.get("analisar") and (not analisar or analisar > dados["analisar"]):
         return None  # a lista salva cobre menos reels do que o pedido agora
     reels = dados.get("reels") or []
+    chave = CRITERIOS[criterio][3]
+    if reels and not any(chave in m for m in reels):
+        return None  # lista de uma versao antiga, sem esse numero
+    for m in reels:
+        m["_completo"] = True  # os numeros ja foram completados quando a lista foi salva
     log(f"   usando a lista salva ha {int(idade // 60)} min ({len(reels)} reels). "
         "Para buscar de novo: use --atualizar-lista (ou apague sistema\\dados\\<conta>\\lista_reels.json)")
     return reels[:analisar] if analisar else reels
@@ -503,7 +529,8 @@ def lista_salva(pasta, analisar):
 
 def salvar_lista(pasta, analisar, reels):
     pasta.mkdir(parents=True, exist_ok=True)
-    resumo = [{"code": m["code"], "play_count": visualizacoes(m)} for m in reels]
+    resumo = [{"code": m["code"], "play_count": visualizacoes(m), "like_count": curtidas(m)}
+              for m in reels]
     (pasta / "lista_reels.json").write_text(
         json.dumps({"quando": time.time(), "analisar": analisar, "reels": resumo}), encoding="utf-8")
 
@@ -910,10 +937,12 @@ def main():
                    help="quantos reels baixar (os mais recentes). 0 = todos")
     p.add_argument("--mais-vistos", action="store_true",
                    help="baixar os reels MAIS VISUALIZADOS em vez dos mais recentes")
+    p.add_argument("--mais-curtidos", action="store_true",
+                   help="baixar os reels MAIS CURTIDOS em vez dos mais recentes")
     p.add_argument("--analisar", type=int, default=0,
-                   help="com --mais-vistos: quantos reels recentes analisar (padrao: todos)")
+                   help="com --mais-vistos/--mais-curtidos: quantos reels recentes analisar (padrao: todos)")
     p.add_argument("--atualizar-lista", action="store_true",
-                   help="com --mais-vistos: ignora a lista salva e busca tudo de novo")
+                   help="com --mais-vistos/--mais-curtidos: ignora a lista salva e busca tudo de novo")
     p.add_argument("--destaques", action="store_true", help="baixar so os DESTAQUES (nao os reels)")
     p.add_argument("--reels-e-destaques", action="store_true", help="baixar os reels e os destaques")
     p.add_argument("--quais-destaques", metavar="NUMEROS",
@@ -988,22 +1017,23 @@ def main():
             qtd = args.quantidade
             if fazer_reels and qtd is None:
                 qtd = int(perguntar("Quantos reels baixar? (Enter = todos): ", "0") or 0)
-            vistos = args.mais_vistos
-            if fazer_reels and not vistos and not args.alvo:
-                vistos = perguntar("Quais? [1] mais recentes  [2] mais visualizados  (Enter = 1): ",
-                                   "1").strip() == "2"
+            criterio = "curtidos" if args.mais_curtidos else "vistos" if args.mais_vistos else None
+            if fazer_reels and not criterio and not args.alvo:
+                resp = perguntar("Quais? [1] mais recentes  [2] mais visualizados  [3] mais curtidos"
+                                 "  (Enter = 1): ", "1").strip()
+                criterio = {"2": "vistos", "3": "curtidos"}.get(resp)
             if not fazer_reels:
                 reels = []
-            elif vistos:
-                log(f"Listando os reels de @{conta} para achar os mais visualizados"
+            elif criterio:
+                log(f"Listando os reels de @{conta} para achar os {CRITERIOS[criterio][2].lower()}"
                     + (f" (entre os {args.analisar} mais recentes)" if args.analisar else "") + "...")
-                reels = None if args.atualizar_lista else lista_salva(dados, args.analisar)
+                reels = None if args.atualizar_lista else lista_salva(dados, args.analisar, criterio)
                 if reels is None:
                     reels = listar_reels(s, conta, args.analisar)
                     log(f"{len(reels)} reels encontrados.")
-                    reels = mais_vistos(s, reels, 0, mostrar=False)
+                    reels = ranking(s, reels, 0, criterio, mostrar=False)
                     salvar_lista(dados, args.analisar, reels)
-                reels = mais_vistos(s, reels, qtd)
+                reels = ranking(s, reels, qtd, criterio)
             else:
                 log(f"Listando reels de @{conta}" + (f" (ate {qtd})" if qtd else " (todos)") + "...")
                 reels = listar_reels(s, conta, qtd)
@@ -1021,8 +1051,10 @@ def main():
     for i, midia in enumerate(reels, 1):
         codigo = midia["code"]
         prefixo = f"[{i}/{len(reels)}] {codigo}"
-        if visualizacoes(midia) is not None:
-            prefixo += f" ({formatar_numero(visualizacoes(midia))} visualizacoes)"
+        numeros = [f"{formatar_numero(f(midia))} {palavra}" for f, palavra, _, _ in CRITERIOS.values()
+                   if f(midia) is not None]
+        if numeros:
+            prefixo += f" ({', '.join(numeros)})"
         if codigo in ja:
             log(f"{prefixo}  ja baixado, pulando")
             pulados += 1
