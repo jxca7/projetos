@@ -15,6 +15,7 @@ const PASTAS = ['cookies', 'bios', 'fotos', 'testar', 'story/cookies'];
 const ARQUIVOS = {
   'bio.txt': '',
   'site.txt': '',
+  'pasta.txt': '',
   'site_login.txt': 'seu@email.com:suasenha\r\n',
   'contas.txt':
     '# Senha de cada conta do Instagram: uma por linha, no formato  usuario:senha\r\n' +

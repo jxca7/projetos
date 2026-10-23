@@ -15,6 +15,7 @@ const {
 
 const ARQ_CONTAS = path.join(PASTA, 'contas.txt');
 const ARQ_FEITOS = path.join(PASTA, 'feitos.txt');
+const ARQ_PASTA = path.join(PASTA, 'pasta.txt'); // (opcional) nome da pasta/grupo do site onde pôr as contas
 const ESPERA_MANUAL = 5 * 60 * 1000; // tempo para você fazer algo na mão (login no site, código)
 
 const TXT_CONECTAR = ['Conectar Instagram', 'Connect Instagram'];
@@ -322,10 +323,44 @@ async function esperouIrParaInstagram(page, site, timeout) {
   return false;
 }
 
+// Seleciona uma pasta/grupo do site pelo NOME (ignora o contador "· N" do lado)
+async function selecionarPasta(page, nomePasta) {
+  const handle = await page
+    .evaluateHandle((alvoBruto) => {
+      const alvo = alvoBruto.toLowerCase().trim();
+      const norm = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const bate = (t) => t === alvo || t.startsWith(alvo + ' ') || t.startsWith(alvo + '·') || t.startsWith(alvo + ' ·');
+      const visivel = (el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      };
+      const cands = [...document.querySelectorAll('button, a, [role="button"], [role="tab"], li, span, div')]
+        .filter((el) => bate(norm(el.innerText)) && visivel(el));
+      const internos = cands.filter((el) => !cands.some((o) => o !== el && el.contains(o)));
+      const clicaveis = internos.filter((el) => el.closest('button, a, [role="button"], [role="tab"], li'));
+      const lista = clicaveis.length ? clicaveis : internos;
+      return lista[0] || null;
+    }, nomePasta)
+    .catch(() => null);
+  const el = handle && handle.asElement();
+  if (!el) return false;
+  await pausaHumana(300, 700);
+  await cliqueHumano(page, el);
+  return true;
+}
+
 async function clicarConectar(page, site, nome) {
   await page.goto(site, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await entrarNoSite(page, site, nome);
   await fecharPopup(page, nome);
+
+  // Seleciona a pasta/grupo (pasta.txt), se configurada, antes de conectar
+  const nomePasta = lerTexto(ARQ_PASTA);
+  if (nomePasta) {
+    if (await selecionarPasta(page, nomePasta)) log(nome, `Selecionei a pasta "${nomePasta}".`);
+    else log(nome, `AVISO: não achei a pasta "${nomePasta}" (vou conectar sem selecionar pasta).`);
+    await pausaHumana(500, 1000);
+  }
 
   if (!(await clicarPrimeiroConectar(page, 15000))) {
     if (await entrarNoSite(page, site, nome)) {

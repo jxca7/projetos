@@ -64,7 +64,9 @@ Cada conta usa um perfil separado do Edge (pasta `navegador/`). Se o perfil fica
 ## 3) Só conectar a conta no site
 1. Coloque o link do site no **`site.txt`** e o login **do site** (email:senha) no **`site_login.txt`**.
 2. Coloque a senha de cada conta no **`contas.txt`** (`usuario:senha`, uma por linha).
-3. Jogue os cookies na pasta **`cookies/`** (o cookie entra logado e já traz o @usuário da conta).
+3. (Opcional) Para jogar as contas numa **pasta/grupo do site**: escreva o nome da pasta no **`pasta.txt`**
+   (ex.: `teste`). O script seleciona essa pasta antes de conectar cada conta.
+4. Jogue os cookies na pasta **`cookies/`** (o cookie entra logado e já traz o @usuário da conta).
    Se a pasta `cookies/` estiver vazia, ele usa direto o **`contas.txt`** (login por usuário e senha).
 4. No menu, escolha **3**.
 
