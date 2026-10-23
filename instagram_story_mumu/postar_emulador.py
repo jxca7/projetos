@@ -320,19 +320,19 @@ def postar_em(d, label, link, rotulo):
 
 
 def main():
-    imagem = achar_imagem()
-    if not imagem:
-        print("Coloque a imagem como imagem.jpg nesta pasta.")
-        return
+    imagem = achar_imagem()  # opcional: se não tiver, usa a foto que já está no dispositivo
     link, rotulo = ler_link()
     if not link:
         print("AVISO: link.txt vazio — o story vai sem link.")
 
     d = conectar()
 
-    print("Enviando a imagem para a galeria do MuMu...")
-    d.push(str(imagem), IMG_REMOTA)
-    d.shell(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{IMG_REMOTA}")
+    if imagem:
+        print("Enviando a imagem para a galeria do MuMu...")
+        d.push(str(imagem), IMG_REMOTA)
+        d.shell(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{IMG_REMOTA}")
+    else:
+        print("Sem imagem.jpg no PC — vou usar a foto que já está no dispositivo (a única).")
 
     todos = icones_clones(d)
     if not todos:
