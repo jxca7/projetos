@@ -96,6 +96,7 @@ async function rodar() {
   }
 
   const resultado = [];
+  const conectados = [];
   try {
     for (const [i, conta] of contas.entries()) {
       try {
@@ -104,6 +105,8 @@ async function rodar() {
         marcarFeita('tudo', conta.base);
         marcarFeita('perfil', conta.base);
         marcarFeita('conectar', conta.base);
+        const u = conectar.usuarioDaConta(conta);
+        if (u) conectados.push(u);
         resultado.push(`✔ ${conta.usuario}${avisos.length ? ` (avisos: ${avisos.join('; ')})` : ''}`);
       } catch (err) {
         log(conta.usuario, `ERRO: ${err.message}`);
@@ -128,6 +131,19 @@ async function rodar() {
         } catch {}
       }
       if (i < contas.length - 1) await esperar(1200 + Math.random() * 1500);
+    }
+
+    // Organiza as contas conectadas numa pasta do site (se pasta.txt estiver preenchido)
+    const nomePasta = lerTexto(path.join(PASTA, 'pasta.txt'));
+    if (nomePasta && conectados.length) {
+      try {
+        console.log(`\nColocando ${conectados.length} conta(s) na pasta "${nomePasta}"...`);
+        const faltando = await conectar.organizarPasta(browser, site, nomePasta, conectados);
+        if (faltando.length) console.log(`  (não achei na lista: ${faltando.map((f) => '@' + f).join(', ')})`);
+        console.log('  Pasta salva.');
+      } catch (e) {
+        console.log(`  AVISO: não consegui organizar a pasta (${e.message}).`);
+      }
     }
   } finally {
     console.log('\n===== RESUMO (tudo de uma vez) =====');

@@ -323,30 +323,74 @@ async function esperouIrParaInstagram(page, site, timeout) {
   return false;
 }
 
-// Seleciona uma pasta/grupo do site pelo NOME (ignora o contador "· N" do lado)
-async function selecionarPasta(page, nomePasta) {
-  const handle = await page
-    .evaluateHandle((alvoBruto) => {
-      const alvo = alvoBruto.toLowerCase().trim();
-      const norm = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const bate = (t) => t === alvo || t.startsWith(alvo + ' ') || t.startsWith(alvo + '·') || t.startsWith(alvo + ' ·');
-      const visivel = (el) => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      };
-      const cands = [...document.querySelectorAll('button, a, [role="button"], [role="tab"], li, span, div')]
-        .filter((el) => bate(norm(el.innerText)) && visivel(el));
-      const internos = cands.filter((el) => !cands.some((o) => o !== el && el.contains(o)));
-      const clicaveis = internos.filter((el) => el.closest('button, a, [role="button"], [role="tab"], li'));
-      const lista = clicaveis.length ? clicaveis : internos;
-      return lista[0] || null;
-    }, nomePasta)
-    .catch(() => null);
-  const el = handle && handle.asElement();
-  if (!el) return false;
-  await pausaHumana(300, 700);
-  await cliqueHumano(page, el);
-  return true;
+// Descobre o @usuário de uma conta (para casar com a lista do site)
+function usuarioDaConta(conta) {
+  if (conta.modo === 'senha') return (conta.usuario || '').replace(/^@/, '');
+  let u = conta.usuarioReal;
+  if (!u && conta.arquivo) {
+    try {
+      u = lerUsuarioSenha(conta.arquivo).usuario;
+    } catch {}
+  }
+  return (u || conta.usuario || '').replace(/^@/, '');
+}
+
+// Depois de conectar, abre o lápis da pasta, marca as contas (pelo @usuário) e salva.
+async function organizarPasta(browser, site, nomePasta, usuarios) {
+  const page = (await browser.pages())[0] || (await browser.newPage());
+  await page.goto(site, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
+  await fecharPopup(page, 'pasta');
+  await pausaHumana(800, 1500);
+
+  // abre o lápis ("Editar pasta") da pasta com esse nome
+  const abriu = await page.evaluate((alvoBruto) => {
+    const alvo = alvoBruto.toLowerCase().trim();
+    const norm = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const bate = (t) => t === alvo || t.startsWith(alvo + ' ') || t.startsWith(alvo + '·') || t.startsWith(alvo + ' ·');
+    const chip = [...document.querySelectorAll('button')].find((b) => bate(norm(b.innerText)));
+    if (!chip) return false;
+    const cont = chip.parentElement || document;
+    let lapis = [...cont.querySelectorAll('button[title="Editar pasta"]')][0];
+    if (!lapis && chip.nextElementSibling && chip.nextElementSibling.tagName === 'BUTTON') lapis = chip.nextElementSibling;
+    if (!lapis) return false;
+    lapis.click();
+    return true;
+  }, nomePasta);
+  if (!abriu) throw new Error(`não achei a pasta "${nomePasta}" ou o lápis dela`);
+  await pausaHumana(1200, 2200); // o modal abrir
+
+  // marca cada @usuário na lista do modal
+  const alvos = usuarios.map((u) => u.toLowerCase().replace(/^@/, '')).filter(Boolean);
+  const naoAchei = await page.evaluate((alvos) => {
+    const faltando = [];
+    const labels = [...document.querySelectorAll('label')];
+    for (const alvo of alvos) {
+      const lab = labels.find((l) => {
+        const sp = l.querySelector('span');
+        const t = ((sp ? sp.innerText : l.innerText) || '').toLowerCase().replace(/^@/, '').trim();
+        return t === alvo;
+      });
+      if (!lab) {
+        faltando.push(alvo);
+        continue;
+      }
+      const cb = lab.querySelector('input[type="checkbox"]');
+      if (cb && !cb.checked) cb.click();
+    }
+    return faltando;
+  }, alvos);
+  await pausaHumana(500, 1000);
+
+  // clica em "Salvar pasta"
+  const salvou = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /salvar pasta/i.test(x.innerText || ''));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  if (!salvou) throw new Error('não achei o botão "Salvar pasta"');
+  await pausaHumana(1500, 2500);
+  return naoAchei;
 }
 
 async function clicarConectar(page, site, nome) {
@@ -644,11 +688,14 @@ async function rodar() {
   }
 
   const resultado = [];
+  const conectados = [];
   try {
     for (const [i, conta] of contas.entries()) {
       try {
         await conectarConta(browser, site, conta);
         marcarFeitaConta(conta);
+        const u = usuarioDaConta(conta);
+        if (u) conectados.push(u);
         resultado.push(`✔ ${conta.usuario}`);
       } catch (err) {
         log(conta.usuario, `ERRO: ${err.message}`);
@@ -674,6 +721,19 @@ async function rodar() {
       }
       if (i < contas.length - 1) await esperar(1200 + Math.random() * 1500);
     }
+
+    // Organiza as contas conectadas numa pasta do site (se pasta.txt estiver preenchido)
+    const nomePasta = lerTexto(ARQ_PASTA);
+    if (nomePasta && conectados.length) {
+      try {
+        console.log(`\nColocando ${conectados.length} conta(s) na pasta "${nomePasta}"...`);
+        const faltando = await organizarPasta(browser, site, nomePasta, conectados);
+        if (faltando.length) console.log(`  (não achei na lista: ${faltando.map((f) => '@' + f).join(', ')})`);
+        console.log('  Pasta salva.');
+      } catch (e) {
+        console.log(`  AVISO: não consegui organizar a pasta (${e.message}).`);
+      }
+    }
   } finally {
     console.log('\n===== RESUMO (conectar) =====');
     resultado.forEach((r) => console.log(r));
@@ -690,5 +750,7 @@ module.exports = {
   clicarConectar,
   fazerLogin,
   passarTelas,
+  organizarPasta,
+  usuarioDaConta,
   lerLoginSite,
 };
