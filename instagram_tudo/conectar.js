@@ -354,14 +354,6 @@ async function clicarConectar(page, site, nome) {
   await entrarNoSite(page, site, nome);
   await fecharPopup(page, nome);
 
-  // Seleciona a pasta/grupo (pasta.txt), se configurada, antes de conectar
-  const nomePasta = lerTexto(ARQ_PASTA);
-  if (nomePasta) {
-    if (await selecionarPasta(page, nomePasta)) log(nome, `Selecionei a pasta "${nomePasta}".`);
-    else log(nome, `AVISO: não achei a pasta "${nomePasta}" (vou conectar sem selecionar pasta).`);
-    await pausaHumana(500, 1000);
-  }
-
   if (!(await clicarPrimeiroConectar(page, 15000))) {
     if (await entrarNoSite(page, site, nome)) {
       await fecharPopup(page, nome);

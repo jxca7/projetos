@@ -7,6 +7,7 @@ const tarefas = {
   perfil: './perfil',
   conectar: './conectar',
   testar: './testar',
+  capturar: './capturar_site',
 };
 
 const tarefa = process.argv[2];
