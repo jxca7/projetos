@@ -16,3 +16,4 @@ next-env.d.ts
 /storage
 /coverage
 tsconfig.tsbuildinfo
+.env.docker

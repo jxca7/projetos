@@ -1,0 +1,74 @@
+# Sobe a plataforma inteira numa máquina só (VPS ou seu PC com Docker).
+#   cp .env.docker.example .env.docker   # e preencha os segredos
+#   docker compose up -d --build
+#
+# São quatro serviços: banco, fila, painel e worker. A migração roda uma vez,
+# antes do painel e do worker subirem.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: publicador
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: publicador_ig
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U publicador -d publicador_ig"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Aplica as migrações e sai. O painel e o worker só sobem depois disto.
+  migrate:
+    build: .
+    command: ["pnpm", "db:deploy"]
+    env_file: .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: ["pnpm", "start"]
+    env_file: .env.docker
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mídia no driver local sobrevive a reinícios. Com S3/R2, pode remover.
+      - storage:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["pnpm", "worker"]
+    env_file: .env.docker
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  storage:

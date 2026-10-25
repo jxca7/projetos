@@ -18,7 +18,8 @@
     "test": "tsx --test tests/unit.test.ts tests/multi-app.test.ts tests/oauth-flows.test.ts",
     "test:falhas": "tsx tests/failure-paths.ts",
     "seed:escala": "tsx scripts/seed-escala.ts",
-    "setup:env": "bash scripts/setup-env.sh"
+    "setup:env": "bash scripts/setup-env.sh",
+    "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
