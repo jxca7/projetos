@@ -68,6 +68,14 @@ export class GraphDriver implements MetaDriver {
   }
 
   /**
+   * Token de Página do Facebook não expira enquanto a permissão existir, então
+   * não há o que renovar neste fluxo.
+   */
+  async refreshLongLivedToken(): Promise<null> {
+    return null;
+  }
+
+  /**
    * Troca o token curto do Facebook Login por um de longa duração (~60 dias).
    * Tokens de página derivados deste não expiram enquanto o usuário mantiver a
    * permissão, mas guardamos a validade para avisar antes de quebrar.

@@ -2,7 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { requireContext, canManageAccounts } from "@/lib/session";
 import { Card, Notice, SectionTitle } from "@/components/ui";
 import { env } from "@/lib/env";
-import { REQUIRED_SCOPES, redirectUri } from "@/lib/meta/oauth";
+import {
+  FACEBOOK_LOGIN_SCOPES,
+  INSTAGRAM_LOGIN_SCOPES,
+  dataDeletionUrl,
+  deauthorizeUrl,
+  redirectUri,
+} from "@/lib/meta/oauth";
+import { Copiavel } from "./copiavel";
 import { MetaAppsManager, TESTERS_POR_APP, type MetaAppRow } from "./manager";
 
 export const metadata = { title: "Apps Meta · Publicador IG" };
@@ -37,6 +44,8 @@ export default async function AppsMetaPage({
     graphVersion: a.graphVersion,
     isActive: a.isActive,
     notes: a.notes,
+    loginFlow: a.loginFlow,
+    facebookAppId: a.facebookAppId,
     accountCount: a._count.accounts,
   }));
 
@@ -58,36 +67,69 @@ export default async function AppsMetaPage({
       <MetaAppsManager apps={rows} totalContas={totalContas} contasSemApp={contasSemApp} />
 
       <Card className="bg-surface-2">
-        <h3 className="font-medium">Como deixar um app pronto para publicar</h3>
-        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-muted">
-          <li>
-            No app, adicione o produto <strong className="text-text">Instagram</strong> e
-            configure o Facebook Login.
-          </li>
-          <li>
-            Em <strong className="text-text">Funções → Testadores do Instagram</strong>, adicione
-            o @ de cada conta que vai publicar. Cada conta precisa{" "}
-            <strong className="text-text">aceitar o convite</strong> no app do Instagram, em
-            Configurações → Apps e sites → Convites de testador.
-          </li>
-          <li>
-            Cada conta precisa ser <strong className="text-text">Business ou Creator</strong> e
-            estar vinculada a uma Página do Facebook que você administra.
-          </li>
-          <li>
-            Em Facebook Login → Configurações, cadastre esta URL de redirecionamento:
-            <code className="mt-1 block rounded-md bg-surface px-2 py-1 font-mono text-xs break-all">
-              {redirectUri()}
-            </code>
-          </li>
-          <li>
-            Permissões usadas:
-            <code className="mt-1 block rounded-md bg-surface px-2 py-1 font-mono text-xs break-all">
-              {REQUIRED_SCOPES.join(", ")}
-            </code>
-          </li>
-        </ol>
+        <h3 className="font-medium">URLs que precisam estar salvas no seu app</h3>
+        <p className="mt-1 text-sm text-muted">
+          A Meta compara estas URLs caractere a caractere. Qualquer diferença — http em vez de
+          https, barra no final — vira <code>Invalid redirect_uri</code> no login.
+        </p>
+        <div className="mt-3 space-y-2">
+          <Copiavel label="OAuth redirect URI (obrigatória)" value={redirectUri()} />
+          <Copiavel label="Desautorização" value={deauthorizeUrl()} />
+          <Copiavel label="Exclusão de dados" value={dataDeletionUrl()} />
+        </div>
+        <p className="mt-3 text-sm text-muted">
+          Em Configurações → Básico, preencha também <strong className="text-text">App Domains</strong>{" "}
+          e <strong className="text-text">Site URL</strong> com o domínio desta instalação.
+        </p>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="bg-surface-2">
+          <h3 className="font-medium">Instagram Login (recomendado)</h3>
+          <p className="mt-1 text-sm text-muted">
+            Não exige Página do Facebook. Use o <strong className="text-text">Instagram App ID</strong>{" "}
+            e o <strong className="text-text">Instagram App Secret</strong> — não o App ID do Facebook.
+          </p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-muted">
+            <li>
+              No app: <strong className="text-text">Instagram → API setup with Instagram login</strong>.
+            </li>
+            <li>
+              Em <strong className="text-text">Business login settings</strong>, cole a OAuth
+              redirect URI acima.
+            </li>
+            <li>
+              Em <strong className="text-text">Funções → Testadores do Instagram</strong>, adicione
+              o @ de cada conta. Cada uma precisa aceitar o convite no app do Instagram.
+            </li>
+            <li>A conta precisa ser Business ou Creator.</li>
+          </ol>
+          <p className="mt-2 text-xs text-muted">
+            Permissões: <code className="break-all">{INSTAGRAM_LOGIN_SCOPES.join(", ")}</code>
+          </p>
+          <p className="mt-2 text-sm text-warn">
+            O token vale 60 dias. A plataforma renova sozinha todo dia de madrugada — se o worker
+            ficar parado mais de 60 dias, as contas precisam autorizar de novo.
+          </p>
+        </Card>
+
+        <Card className="bg-surface-2">
+          <h3 className="font-medium">Facebook Login (clássico)</h3>
+          <p className="mt-1 text-sm text-muted">
+            Exige que cada conta esteja vinculada a uma Página do Facebook que você administra. Em
+            troca, uma autorização só traz todas as contas das suas Páginas de uma vez, e o token
+            de Página não expira.
+          </p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-muted">
+            <li>No app, adicione o produto Instagram e configure o Facebook Login.</li>
+            <li>Em Facebook Login → Configurações, cole a OAuth redirect URI acima.</li>
+            <li>Use o App ID e a Chave Secreta do Facebook no cadastro aqui.</li>
+          </ol>
+          <p className="mt-2 text-xs text-muted">
+            Permissões: <code className="break-all">{FACEBOOK_LOGIN_SCOPES.join(", ")}</code>
+          </p>
+        </Card>
+      </div>
 
       <Card className="bg-surface-2">
         <h3 className="font-medium">Por que mais de um app</h3>

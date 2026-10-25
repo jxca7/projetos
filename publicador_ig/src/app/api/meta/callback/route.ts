@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { meta, MetaApiError, NoMetaAppError, activeCredentials } from "@/lib/meta";
 import { env as appEnv } from "@/lib/env";
-import { redirectUri, verifyState, REQUIRED_SCOPES } from "@/lib/meta/oauth";
+import { redirectUri, verifyState, scopesFor } from "@/lib/meta/oauth";
 import { requireContext, canManageAccounts } from "@/lib/session";
 import { env } from "@/lib/env";
 
@@ -48,7 +48,14 @@ export async function GET(req: NextRequest) {
     // Em mock não há app cadastrado nem necessidade de assinar.
     const creds =
       appEnv().META_DRIVER === "mock"
-        ? { metaAppId: null, appId: "", appSecret: "", graphVersion: "", source: "env" as const }
+        ? {
+            metaAppId: null,
+            loginFlow: "FACEBOOK_LOGIN" as const,
+            appId: "",
+            appSecret: "",
+            graphVersion: "",
+            source: "env" as const,
+          }
         : await activeCredentials(ctx.workspaceId);
     const driver = meta(appEnv().META_DRIVER === "mock" ? null : creds);
     const shortLived = await driver.exchangeCodeForToken(code, redirectUri());
@@ -89,7 +96,7 @@ export async function GET(req: NextRequest) {
           followersCount: acc.followersCount,
           accessTokenEnc: encryptSecret(acc.accessToken),
           tokenExpiresAt: longLived.expiresAt,
-          scopes: [...REQUIRED_SCOPES],
+          scopes: [...scopesFor(creds.loginFlow)],
           status: "ACTIVE",
           statusMessage: null,
           metaAppId: creds.metaAppId,
@@ -106,7 +113,7 @@ export async function GET(req: NextRequest) {
           followersCount: acc.followersCount,
           accessTokenEnc: encryptSecret(acc.accessToken),
           tokenExpiresAt: longLived.expiresAt,
-          scopes: [...REQUIRED_SCOPES],
+          scopes: [...scopesFor(creds.loginFlow)],
           status: "ACTIVE",
           metaAppId: creds.metaAppId,
           lastSyncedAt: new Date(),

@@ -92,7 +92,7 @@ export default async function ContasPage({
       {rows.length === 0 ? (
         <Empty
           title="Nenhuma conta conectada"
-          hint="A conta do Instagram precisa ser Business ou Creator e estar vinculada a uma Página do Facebook. Conecte somente contas que você possui ou gerencia com autorização do dono."
+          hint="A conta do Instagram precisa ser Business ou Creator. No fluxo Facebook Login ela também precisa estar vinculada a uma Página; no Instagram Login, não. Conecte somente contas que você possui ou gerencia com autorização do dono."
         />
       ) : (
         <AccountsManager

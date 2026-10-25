@@ -86,19 +86,38 @@ papel nele. App Review e Verificação do Negócio só passam a ser obrigatório
 quando *outras pessoas* forem conectar as contas delas no seu produto
 (Advanced Access).
 
-Para cada app:
+### Dois fluxos de login, e eles não se misturam
 
-1. **Conta profissional**: cada conta do Instagram precisa ser Business ou Creator
-   e estar vinculada a uma Página do Facebook que você administra.
-2. **App** em developers.facebook.com com o produto Instagram e o Facebook Login.
-3. **Testadores do Instagram**: em Funções → Testadores do Instagram, adicione o @
-   de cada conta. Cada conta precisa **aceitar o convite** no app do Instagram, em
-   Configurações → Apps e sites → Convites de testador.
-4. **Redirect URI** cadastrada em Facebook Login → Configurações:
-   `{APP_URL}/api/meta/callback`.
-5. **Permissões**: `instagram_basic`, `instagram_content_publish`,
-   `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`,
-   `business_management`.
+| | Instagram Login | Facebook Login |
+| --- | --- | --- |
+| Credencial | **Instagram App ID / Secret** | App ID / Chave Secreta do Facebook |
+| Exige Página do Facebook | Não | Sim |
+| Host da API | `graph.instagram.com` | `graph.facebook.com` |
+| Permissões | `instagram_business_*` | `instagram_basic`, `pages_*`, … |
+| Uma autorização traz | uma conta | todas as contas das suas Páginas |
+| Token | 60 dias, **precisa renovar** | de Página, não expira |
+
+Os nomes antigos de permissão foram descontinuados no fluxo do Instagram em
+janeiro de 2025 — app que ainda manda `instagram_basic` ali não chama os
+endpoints. Por isso o fluxo fica gravado em cada app e decide host, permissões
+e driver.
+
+No Instagram Login a plataforma renova os tokens sozinha, todo dia às 4h, com
+10 dias de folga. **Se o worker ficar parado mais de 60 dias, as contas precisam
+autorizar de novo** — não há como recuperar um token vencido.
+
+### URLs que precisam estar salvas no app
+
+A Meta compara caractere a caractere; qualquer diferença vira
+`Invalid redirect_uri`. A tela **Apps Meta** mostra as três com botão de copiar:
+
+- `{APP_URL}/api/meta/callback` — OAuth redirect URI
+- `{APP_URL}/api/meta/deauthorize` — chamada quando alguém remove o app
+- `{APP_URL}/api/meta/data-deletion` — chamada no pedido de exclusão de dados
+
+Os dois últimos validam o `signed_request` (HMAC-SHA256 com o App Secret) contra
+cada app cadastrado: só o secret certo valida, e é assim que se descobre qual app
+enviou sem confiar em nada do corpo da requisição.
 
 ### Por que a plataforma suporta vários apps
 
@@ -115,7 +134,8 @@ chamadas daquela conta. Por isso apagar um app marca as contas dele para
 reconectar, em vez de deixá-las falhando com um erro de token sem causa aparente.
 
 Quem roda com um app só pode continuar usando `META_APP_ID` e `META_APP_SECRET`
-no `.env`: eles são o fallback quando não há nenhum app cadastrado.
+no `.env`: eles são o fallback quando não há nenhum app cadastrado, e assumem o
+fluxo do Facebook.
 
 ## Arquitetura da publicação
 

@@ -132,9 +132,10 @@ model SocialAccount {
   followersCount Int?
 
   // Token de pagina/usuario de longa duracao, cifrado em repouso (AES-256-GCM)
-  accessTokenEnc String
-  tokenExpiresAt DateTime?
-  scopes         String[]  @default([])
+  accessTokenEnc   String
+  tokenExpiresAt   DateTime?
+  tokenRefreshedAt DateTime?
+  scopes           String[]  @default([])
 
   status        AccountStatus @default(ACTIVE)
   statusMessage String?
@@ -437,6 +438,20 @@ model AccountFolder {
   @@index([workspaceId, position])
 }
 
+/// Como o app autentica as contas.
+///
+/// INSTAGRAM_LOGIN e' o fluxo novo (Business Login for Instagram): usa o
+/// Instagram App ID/Secret, nao exige Pagina do Facebook e fala com
+/// graph.instagram.com. O token dura 60 dias e precisa ser renovado.
+///
+/// FACEBOOK_LOGIN e' o fluxo classico: usa o App ID do Facebook, exige que a
+/// conta esteja vinculada a uma Pagina, e fala com graph.facebook.com. O token
+/// de pagina nao expira enquanto a permissao existir.
+enum LoginFlow {
+  INSTAGRAM_LOGIN
+  FACEBOOK_LOGIN
+}
+
 /// App do Meta for Developers usado para falar com a Graph API.
 ///
 /// Existe mais de um porque cada app aguenta no maximo 50 testers, e em modo
@@ -447,11 +462,16 @@ model MetaApp {
   id          String @id @default(cuid())
   workspaceId String
 
-  name         String
-  appId        String
+  name      String
+  loginFlow LoginFlow @default(INSTAGRAM_LOGIN)
+
+  /// client_id do fluxo escolhido: Instagram App ID ou App ID do Facebook.
+  appId         String
+  /// App ID do Facebook, quando o fluxo e' o do Instagram. So' informativo.
+  facebookAppId String?
   /// Cifrado em repouso (AES-256-GCM), como os tokens.
-  appSecretEnc String
-  graphVersion String @default("v23.0")
+  appSecretEnc  String
+  graphVersion  String  @default("v23.0")
 
   /// App usado nas novas conexoes. Apenas um por workspace.
   isActive Boolean @default(false)

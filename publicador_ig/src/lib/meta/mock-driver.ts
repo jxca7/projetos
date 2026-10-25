@@ -97,6 +97,13 @@ export class MockDriver implements MetaDriver {
     };
   }
 
+  async refreshLongLivedToken(accessToken: string): Promise<LongLivedToken> {
+    return {
+      accessToken: `${accessToken}-renovado`,
+      expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+    };
+  }
+
   async listInstagramAccounts(): Promise<DiscoveredAccount[]> {
     const handles = ["marca.oficial", "loja.centro", "loja.shopping", "studio.criativo"];
     return handles.map((h, i) => ({

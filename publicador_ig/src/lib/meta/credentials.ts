@@ -1,7 +1,7 @@
 import { prisma } from "../prisma";
 import { env } from "../env";
 import { decryptSecret } from "../crypto";
-import type { MetaCredentials } from "./types";
+import type { LoginFlowName, MetaCredentials } from "./types";
 
 export class NoMetaAppError extends Error {
   constructor(message: string) {
@@ -16,6 +16,8 @@ function fromEnv(): MetaCredentials | null {
   if (!e.META_APP_ID || !e.META_APP_SECRET) return null;
   return {
     metaAppId: null,
+    // O .env e' o caminho antigo, do fluxo com Pagina do Facebook.
+    loginFlow: "FACEBOOK_LOGIN",
     appId: e.META_APP_ID,
     appSecret: e.META_APP_SECRET,
     graphVersion: e.META_GRAPH_VERSION,
@@ -28,9 +30,11 @@ function fromRow(row: {
   appId: string;
   appSecretEnc: string;
   graphVersion: string;
+  loginFlow: LoginFlowName;
 }): MetaCredentials {
   return {
     metaAppId: row.id,
+    loginFlow: row.loginFlow,
     appId: row.appId,
     appSecret: decryptSecret(row.appSecretEnc),
     graphVersion: row.graphVersion,

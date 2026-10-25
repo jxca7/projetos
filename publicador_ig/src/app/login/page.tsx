@@ -55,7 +55,7 @@ export default async function LoginPage({
 
       <p className="mt-5 text-xs text-muted">
         Conecte apenas contas que você possui ou gerencia com autorização do dono. A conta precisa
-        ser Business ou Creator e estar vinculada a uma Página do Facebook.
+        ser Business ou Creator.
       </p>
     </main>
   );

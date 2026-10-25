@@ -88,13 +88,11 @@ body {
   color: #fff;
 }
 
-/* Campos de formulario herdam os tokens em vez de repetir classes em cada input. */
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="url"],
-input[type="datetime-local"],
-input[type="number"],
+/* Campos de formulário herdam os tokens em vez de repetir classes em cada input.
+   O seletor exclui os tipos que têm aparência própria em vez de listar os que
+   têm caixa: `input` sem atributo `type` se comporta como text mas NÃO casa com
+   `input[type="text"]`, e ficava sem borda nenhuma. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="submit"]):not([type="button"]),
 textarea,
 select {
   background: var(--surface);
@@ -106,7 +104,7 @@ select {
   width: 100%;
 }
 
-input:focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--accent);

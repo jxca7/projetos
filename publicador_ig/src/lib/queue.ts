@@ -18,6 +18,7 @@ export interface InsightsJobData {
 export type MaintenanceJobData =
   | { kind: "refresh-account-quota"; accountId: string }
   | { kind: "check-token-expiry" }
+  | { kind: "refresh-instagram-tokens" }
   | { kind: "dispatch-reminders" };
 
 const globalForQueues = globalThis as unknown as {

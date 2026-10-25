@@ -413,10 +413,17 @@ export async function retryAllFailedAction() {
 
 const metaAppSchema = z.object({
   name: z.string().trim().min(1, "Dê um nome ao app.").max(60),
+  loginFlow: z.enum(["INSTAGRAM_LOGIN", "FACEBOOK_LOGIN"]).default("INSTAGRAM_LOGIN"),
+  facebookAppId: z
+    .string()
+    .trim()
+    .regex(/^\d{6,25}$/, "O App ID do Facebook é só números.")
+    .optional()
+    .or(z.literal("")),
   appId: z
     .string()
     .trim()
-    .regex(/^\d{6,25}$/, "O App ID da Meta é só números."),
+    .regex(/^\d{6,25}$/, "O App ID é só números."),
   appSecret: z
     .string()
     .trim()
@@ -462,7 +469,9 @@ export async function saveMetaAppAction(input: MetaAppInput, metaAppDbId?: strin
       where: { id: metaAppDbId },
       data: {
         name: data.name,
+        loginFlow: data.loginFlow,
         appId: data.appId,
+        facebookAppId: data.facebookAppId || null,
         appSecretEnc: encryptSecret(data.appSecret),
         graphVersion: data.graphVersion,
         notes: data.notes || null,
@@ -477,7 +486,9 @@ export async function saveMetaAppAction(input: MetaAppInput, metaAppDbId?: strin
     data: {
       workspaceId: ctx.workspaceId,
       name: data.name,
+      loginFlow: data.loginFlow,
       appId: data.appId,
+      facebookAppId: data.facebookAppId || null,
       appSecretEnc: encryptSecret(data.appSecret),
       graphVersion: data.graphVersion,
       notes: data.notes || null,

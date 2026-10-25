@@ -8,9 +8,12 @@ export type PostTypeName = "REEL" | "IMAGE" | "CAROUSEL" | "STORY";
  * papel no app consegue autorizar. O token de uma conta só funciona com o
  * secret do app que o emitiu — o appsecret_proof é um HMAC desse secret.
  */
+export type LoginFlowName = "INSTAGRAM_LOGIN" | "FACEBOOK_LOGIN";
+
 export interface MetaCredentials {
   /** Id do registro MetaApp, quando veio do banco. */
   metaAppId: string | null;
+  loginFlow: LoginFlowName;
   appId: string;
   appSecret: string;
   graphVersion: string;
@@ -86,10 +89,17 @@ export interface MediaMetrics {
  * interface, para dar pra rodar e testar o produto inteiro sem bater na API.
  */
 export interface MetaDriver {
-  readonly name: "graph" | "mock";
+  readonly name: "graph" | "instagram" | "mock";
   /** Troca o `code` do OAuth pelo token de usuário de curta duração. */
   exchangeCodeForToken(code: string, redirectUri: string): Promise<string>;
   exchangeForLongLivedToken(shortLivedToken: string): Promise<LongLivedToken>;
+  /**
+   * Renova um token de longa duracao.
+   *
+   * So' o fluxo do Instagram precisa: o token dura 60 dias e morre se nao for
+   * renovado. Token de Pagina do Facebook nao expira, e o driver devolve null.
+   */
+  refreshLongLivedToken(accessToken: string): Promise<LongLivedToken | null>;
   listInstagramAccounts(userAccessToken: string): Promise<DiscoveredAccount[]>;
   getPublishingLimit(igUserId: string, accessToken: string): Promise<PublishingLimit>;
   createContainer(input: CreateContainerInput): Promise<string>;

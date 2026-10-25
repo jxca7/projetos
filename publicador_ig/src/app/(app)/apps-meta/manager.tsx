@@ -10,9 +10,26 @@ import {
 } from "@/app/actions";
 import { Badge, Button, Card, Field, Notice } from "@/components/ui";
 
+export type LoginFlow = "INSTAGRAM_LOGIN" | "FACEBOOK_LOGIN";
+
+export const FLUXOS: Record<LoginFlow, { label: string; campo: string; hint: string }> = {
+  INSTAGRAM_LOGIN: {
+    label: "Instagram Login",
+    campo: "Instagram App ID",
+    hint: "Em Instagram → API setup with Instagram login. NÃO é o App ID do Facebook.",
+  },
+  FACEBOOK_LOGIN: {
+    label: "Facebook Login",
+    campo: "App ID (Facebook)",
+    hint: "Na capa do app, em Configurações → Básico.",
+  },
+};
+
 export interface MetaAppRow {
   id: string;
   name: string;
+  loginFlow: LoginFlow;
+  facebookAppId: string | null;
   appId: string;
   graphVersion: string;
   isActive: boolean;
@@ -111,9 +128,21 @@ export function MetaAppsManager({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{app.name}</span>
                     {app.isActive ? <Badge tone="ok">Ativo</Badge> : null}
-                    <Badge>{app.graphVersion}</Badge>
+                    <Badge tone={app.loginFlow === "INSTAGRAM_LOGIN" ? "accent" : "neutral"}>
+                      {FLUXOS[app.loginFlow].label}
+                    </Badge>
+                    {app.loginFlow === "FACEBOOK_LOGIN" ? (
+                      <Badge>{app.graphVersion}</Badge>
+                    ) : null}
                   </div>
-                  <p className="mt-1 font-mono text-xs text-muted">App ID: {app.appId}</p>
+                  <p className="mt-1 font-mono text-xs text-muted">
+                    {FLUXOS[app.loginFlow].campo}: {app.appId}
+                  </p>
+                  {app.facebookAppId ? (
+                    <p className="font-mono text-xs text-muted">
+                      App ID (Facebook): {app.facebookAppId}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 text-xs text-muted">
                     App Secret guardado cifrado · {app.accountCount} de {TESTERS_POR_APP} contas
                   </p>
@@ -227,6 +256,8 @@ function AppForm({
   onCancel?: () => void;
   onSubmit: (dados: {
     name: string;
+    loginFlow: LoginFlow;
+    facebookAppId?: string;
     appId: string;
     appSecret: string;
     graphVersion: string;
@@ -234,6 +265,8 @@ function AppForm({
   }) => void;
 }) {
   const [name, setName] = useState(inicial?.name ?? "");
+  const [loginFlow, setLoginFlow] = useState<LoginFlow>(inicial?.loginFlow ?? "INSTAGRAM_LOGIN");
+  const [facebookAppId, setFacebookAppId] = useState(inicial?.facebookAppId ?? "");
   const [appId, setAppId] = useState(inicial?.appId ?? "");
   const [appSecret, setAppSecret] = useState("");
   const [graphVersion, setGraphVersion] = useState(inicial?.graphVersion ?? "v23.0");
@@ -245,16 +278,47 @@ function AppForm({
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ name, appId, appSecret, graphVersion, notes: notes || undefined });
+          onSubmit({
+            name,
+            loginFlow,
+            facebookAppId: facebookAppId || undefined,
+            appId,
+            appSecret,
+            graphVersion,
+            notes: notes || undefined,
+          });
         }}
       >
         <h3 className="font-semibold">{inicial ? `Editar ${inicial.name}` : "Novo app do Meta"}</h3>
+
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(FLUXOS) as LoginFlow[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setLoginFlow(f)}
+              className={[
+                "rounded-lg border px-3 py-2 text-left text-sm transition",
+                loginFlow === f
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "border-border hover:bg-surface-2",
+              ].join(" ")}
+            >
+              {FLUXOS[f].label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted">
+          {loginFlow === "INSTAGRAM_LOGIN"
+            ? "Não exige Página do Facebook. Uma autorização conecta uma conta."
+            : "Exige Página do Facebook, e uma autorização traz todas as contas das suas Páginas."}
+        </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nome" hint="Só para você identificar. Ex.: Clientes A.">
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </Field>
-          <Field label="App ID" hint="Identificação do aplicativo, no painel da Meta.">
+          <Field label={FLUXOS[loginFlow].campo} hint={FLUXOS[loginFlow].hint}>
             <input
               value={appId}
               onChange={(e) => setAppId(e.target.value)}
@@ -262,12 +326,26 @@ function AppForm({
               required
             />
           </Field>
+          {loginFlow === "INSTAGRAM_LOGIN" ? (
+            <Field
+              label="App ID do Facebook (opcional)"
+              hint="Só para você localizar o app no painel da Meta."
+            >
+              <input
+                value={facebookAppId}
+                onChange={(e) => setFacebookAppId(e.target.value)}
+                inputMode="numeric"
+              />
+            </Field>
+          ) : null}
           <Field
-            label="App Secret"
+            label={loginFlow === "INSTAGRAM_LOGIN" ? "Instagram App Secret" : "App Secret"}
             hint={
               inicial
                 ? "Preencha para substituir o secret guardado."
-                : "Em Configurações do app → Básico → Chave Secreta."
+                : loginFlow === "INSTAGRAM_LOGIN"
+                  ? "Fica na mesma tela do Instagram App ID."
+                  : "Em Configurações do app → Básico → Chave Secreta."
             }
           >
             <input
@@ -278,9 +356,11 @@ function AppForm({
               autoComplete="off"
             />
           </Field>
-          <Field label="Versão da Graph API" hint="Suba junto com os deprecations da Meta.">
-            <input value={graphVersion} onChange={(e) => setGraphVersion(e.target.value)} />
-          </Field>
+          {loginFlow === "FACEBOOK_LOGIN" ? (
+            <Field label="Versão da Graph API" hint="Suba junto com os deprecations da Meta.">
+              <input value={graphVersion} onChange={(e) => setGraphVersion(e.target.value)} />
+            </Field>
+          ) : null}
         </div>
 
         <Field label="Observações (opcional)">

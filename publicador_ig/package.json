@@ -15,7 +15,7 @@
     "fixtures": "bash scripts/make-fixtures.sh",
     "seed": "tsx scripts/seed.ts",
     "status": "tsx scripts/status.ts",
-    "test": "tsx --test tests/unit.test.ts tests/multi-app.test.ts",
+    "test": "tsx --test tests/unit.test.ts tests/multi-app.test.ts tests/oauth-flows.test.ts",
     "test:falhas": "tsx tests/failure-paths.ts",
     "seed:escala": "tsx scripts/seed-escala.ts"
   },

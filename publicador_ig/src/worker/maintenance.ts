@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
-import { driverForAccount } from "@/lib/meta";
+import { driverForAccount, credentialsForAccount } from "@/lib/meta";
+import { encryptSecret } from "@/lib/crypto";
+import { meta } from "@/lib/meta";
+import { env } from "@/lib/env";
 import type { MaintenanceJobData } from "@/lib/queue";
 
 const TOKEN_WARNING_DAYS = 7;
+/** Renova com folga: token vencido exige autorizar tudo de novo. */
+const REFRESH_ANTES_DE_DIAS = 10;
 
 export async function processMaintenance(data: MaintenanceJobData): Promise<void> {
   switch (data.kind) {
@@ -26,6 +31,55 @@ export async function processMaintenance(data: MaintenanceJobData): Promise<void
         });
       } catch {
         // Cota é informativa no painel; falhar aqui não bloqueia nada.
+      }
+      return;
+    }
+
+    case "refresh-instagram-tokens": {
+      // O token do fluxo do Instagram vale 60 dias e morre se ninguém renovar.
+      // Renovamos com folga; a Meta só aceita renovar token com mais de 24h.
+      const limite = new Date(Date.now() + REFRESH_ANTES_DE_DIAS * 24 * 60 * 60 * 1000);
+      const contas = await prisma.socialAccount.findMany({
+        where: {
+          status: "ACTIVE",
+          tokenExpiresAt: { not: null, lte: limite },
+          metaApp: { loginFlow: "INSTAGRAM_LOGIN" },
+        },
+        select: { id: true, igUsername: true, accessTokenEnc: true },
+        take: 200,
+      });
+
+      for (const conta of contas) {
+        try {
+          const driver =
+            env().META_DRIVER === "mock"
+              ? meta(null)
+              : meta(await credentialsForAccount(conta.id));
+
+          const renovado = await driver.refreshLongLivedToken(
+            decryptSecret(conta.accessTokenEnc),
+          );
+          if (!renovado) continue; // fluxo do Facebook: nada a fazer
+
+          await prisma.socialAccount.update({
+            where: { id: conta.id },
+            data: {
+              accessTokenEnc: encryptSecret(renovado.accessToken),
+              tokenExpiresAt: renovado.expiresAt,
+              tokenRefreshedAt: new Date(),
+              statusMessage: null,
+            },
+          });
+        } catch (e) {
+          // Falhar a renovação de uma conta não pode parar as outras.
+          const message = e instanceof Error ? e.message : String(e);
+          await prisma.socialAccount.update({
+            where: { id: conta.id },
+            data: {
+              statusMessage: `Não foi possível renovar o token: ${message}`,
+            },
+          });
+        }
       }
       return;
     }

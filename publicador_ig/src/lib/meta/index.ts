@@ -1,5 +1,6 @@
 import { env } from "../env";
 import { GraphDriver } from "./graph-driver";
+import { InstagramLoginDriver } from "./instagram-driver";
 import { MockDriver } from "./mock-driver";
 import type { MetaCredentials, MetaDriver } from "./types";
 
@@ -18,9 +19,12 @@ export function meta(creds?: MetaCredentials | null): MetaDriver {
     return mock;
   }
   if (!creds) {
-    throw new Error("Driver graph exige credenciais do app do Meta.");
+    throw new Error("Falar com a Meta exige as credenciais do app.");
   }
-  return new GraphDriver(creds);
+  // O fluxo decide o host e as permissões, então decide o driver.
+  return creds.loginFlow === "INSTAGRAM_LOGIN"
+    ? new InstagramLoginDriver(creds)
+    : new GraphDriver(creds);
 }
 
 export * from "./types";

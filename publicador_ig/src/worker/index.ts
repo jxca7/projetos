@@ -79,6 +79,11 @@ async function main() {
     { name: "check-token-expiry", data: { kind: "check-token-expiry" } },
   );
   await mq.upsertJobScheduler(
+    "cron-refresh-instagram-tokens",
+    { pattern: "0 4 * * *" },
+    { name: "refresh-instagram-tokens", data: { kind: "refresh-instagram-tokens" } },
+  );
+  await mq.upsertJobScheduler(
     "cron-dispatch-reminders",
     { pattern: "*/5 * * * *" },
     { name: "dispatch-reminders", data: { kind: "dispatch-reminders" } },
