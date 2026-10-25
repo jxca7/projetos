@@ -6,7 +6,7 @@
 // Faça login no Facebook na janela do Edge na 1ª vez (o perfil fica salvo).
 
 const {
-  fs, path, PASTA, esperar, pausaHumana, cliqueHumano, digitarHumano, log, lerTexto, lerProxy, salvarPrint,
+  fs, path, PASTA, esperar, pausaHumana, cliqueHumano, digitarHumano, log, lerTexto, lerProxy, salvarPrint, cookiesNaPasta,
 } = require('./comum');
 const conectar = require('./conectar'); // reaproveita o abrirEdge (perfil navegador_site)
 
@@ -15,12 +15,19 @@ const ARQ_LISTA = path.join(PASTA, 'testadores.txt');
 const ESPERA_LOGIN = 5 * 60 * 1000;
 
 function lerUsuarios() {
+  // 1) se o testadores.txt tiver nomes, usa eles
   const txt = lerTexto(ARQ_LISTA);
-  if (!txt) return [];
-  return txt
-    .split(/\r?\n/)
-    .map((l) => l.trim().replace(/^@/, ''))
-    .filter((l) => l && !l.startsWith('#'));
+  if (txt) {
+    const lista = txt
+      .split(/\r?\n/)
+      .map((l) => l.trim().replace(/^@/, ''))
+      .filter((l) => l && !l.startsWith('#'));
+    if (lista.length) return lista;
+  }
+  // 2) senão, pega os @usuários dos nomes dos arquivos da pasta cookies/ (nome do arquivo = usuário)
+  return cookiesNaPasta()
+    .map((f) => f.replace(/\.[^.]+$/, '').replace(/^@/, '').trim())
+    .filter(Boolean);
 }
 
 // Clica num elemento cujo texto é exatamente 'texto'. Se dentroModal, procura só no role="dialog".
@@ -104,7 +111,9 @@ async function rodar() {
     throw new Error('Coloque o link da tela "Funções do app" (developers.facebook.com) no app_url.txt');
   }
   const usuarios = lerUsuarios();
-  if (!usuarios.length) throw new Error('Coloque os @usuários (um por linha) no testadores.txt');
+  if (!usuarios.length) {
+    throw new Error('Nenhum @usuário. Coloque os cookies na pasta cookies/ (nome do arquivo = usuário) ou liste no testadores.txt');
+  }
   console.log(`${usuarios.length} conta(s) para adicionar como Testador do Instagram.`);
 
   const proxy = lerProxy();
