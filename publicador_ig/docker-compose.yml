@@ -9,9 +9,12 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # POSTGRES_PASSWORD vem do .env.docker (injetado no container). Usuário e
+    # banco são fixos aqui. Não usamos ${...} porque a interpolação do compose
+    # leria de um arquivo chamado .env, não do .env.docker.
+    env_file: .env.docker
     environment:
       POSTGRES_USER: publicador
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: publicador_ig
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -76,9 +79,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      # Domínio para o qual o Caddy emite o certificado. Vem do .env.docker.
-      APP_DOMAIN: ${APP_DOMAIN}
+    # APP_DOMAIN vem do .env.docker; o Caddyfile lê {$APP_DOMAIN} do ambiente.
+    env_file: .env.docker
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data     # certificados; não apague, senão re-emite tudo
