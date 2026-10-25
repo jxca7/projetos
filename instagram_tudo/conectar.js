@@ -581,6 +581,14 @@ async function passarTelas(page, nome) {
         alvo = i;
         break;
       }
+      // Tela extra "Conectar ao Facebook" (ou outro aviso): clica em "Agora não" e segue
+      const agoraNao = await acharTexto(page, TXT_AGORA_NAO).catch(() => null);
+      if (agoraNao) {
+        await cliqueHumano(page, agoraNao);
+        log(nome, 'Cliquei em "Agora não".');
+        await esperar(700);
+        continue;
+      }
       if (passo.categoria && !buscou && Date.now() - inicio > 1500) {
         const busca = await page.$('input[type="search"], input[placeholder*="esquis"], input[placeholder*="earch"], input[placeholder*="usca"]');
         if (busca) {
