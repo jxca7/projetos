@@ -6,7 +6,11 @@ FROM node:22-slim AS base
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
-RUN corepack enable
+# Fixa a MESMA versão do pnpm que gerou o lockfile. Sem isto, o corepack baixa
+# a versão que vier por padrão na imagem, que pode aplicar a trava de idade
+# mínima de pacote (minimumReleaseAge) e recusar um lockfile legítimo.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
 WORKDIR /app
 
 # ---- Dependências (cacheadas enquanto o lockfile não muda) ----
