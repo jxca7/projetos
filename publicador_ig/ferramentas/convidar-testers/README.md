@@ -46,11 +46,35 @@ e tecle Enter. O login fica salvo em `.sessao-meta/` e é reaproveitado depois.
 Ele pula quem já foi convidado (guarda em `.sessao-meta/convidadas.txt`), então
 pode rodar em tandas: `MAX_POR_RUN=3`, conferir, depois aumentar.
 
+## Usar o seu Chrome em vez de um navegador próprio
+
+Por padrão o script abre um navegador com um perfil de automação próprio (você
+loga uma vez e fica salvo). Se preferir usar o seu Chrome, abra-o em modo de
+depuração e passe o endereço:
+
+```bash
+# feche o Chrome, depois abra assim (o caminho muda por sistema):
+#   macOS:   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir="$HOME/chrome-meta"
+#   Windows: "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\chrome-meta"
+#   Linux:   google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/chrome-meta"
+
+CDP=http://localhost:9222 APP_ID=123456 node convidar.mjs
+```
+
+No modo CDP o script usa a janela que já está aberta e **não fecha** o seu
+navegador no fim.
+
+> O Chrome (versão 136+) bloqueia a depuração no seu perfil padrão por
+> segurança — por isso o `--user-data-dir` aponta para uma pasta separada. É um
+> perfil de automação onde você loga **uma vez**; depois fica salvo. Não há como
+> automatizar a sua sessão principal já aberta; isso é regra do próprio Chrome.
+
 ## Opções (variáveis de ambiente)
 
 | Variável | Padrão | Para quê |
 | --- | --- | --- |
 | `APP_ID` | — | ID do app na Meta (obrigatório) |
+| `CDP` | — | endereço do seu Chrome em modo de depuração (ex.: `http://localhost:9222`) |
 | `LISTA` | `contas.txt` | arquivo com os @ |
 | `MAX_POR_RUN` | `0` (todas) | limita quantas por execução |
 | `PERFIL` | `.sessao-meta` | pasta do login salvo e dos registros |

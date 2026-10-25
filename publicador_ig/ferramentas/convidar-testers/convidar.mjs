@@ -23,6 +23,9 @@ const LISTA = process.env.LISTA || "contas.txt"; // um @ por linha
 const PERFIL = process.env.PERFIL || ".sessao-meta"; // onde guarda o login
 const MAX_POR_RUN = Number(process.env.MAX_POR_RUN || "0"); // 0 = todas
 const PAUSA = Number(process.env.PAUSA || "1500"); // ms entre contas (interface respirar)
+// Para usar o SEU Chrome em vez de um navegador próprio: abra o Chrome em modo
+// de depuração e passe CDP=http://localhost:9222 (veja o README).
+const CDP = process.env.CDP || "";
 
 // Textos da interface. Se a tela mudar, ajuste AQUI.
 const TEXTOS = {
@@ -82,12 +85,27 @@ async function main() {
 
   fs.mkdirSync(path.resolve(PERFIL), { recursive: true });
 
-  // Contexto persistente: o login fica salvo e é reaproveitado.
-  const ctx = await chromium.launchPersistentContext(path.resolve(PERFIL), {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
-  });
-  const page = ctx.pages()[0] || (await ctx.newPage());
+  let browser = null;
+  let ctx;
+  let page;
+
+  if (CDP) {
+    // Conecta ao SEU Chrome, aberto em modo de depuração. Usa a janela e a
+    // sessão que já estão lá — não fecha o seu navegador no fim.
+    browser = await chromium.connectOverCDP(CDP);
+    ctx = browser.contexts()[0] || (await browser.newContext());
+    page =
+      ctx.pages().find((p) => p.url().includes("developers.facebook.com")) ||
+      ctx.pages()[0] ||
+      (await ctx.newPage());
+  } else {
+    // Perfil de automação próprio: login salvo e reaproveitado.
+    ctx = await chromium.launchPersistentContext(path.resolve(PERFIL), {
+      headless: false,
+      viewport: { width: 1280, height: 900 },
+    });
+    page = ctx.pages()[0] || (await ctx.newPage());
+  }
 
   await page.goto(ROLES_URL, { waitUntil: "domcontentloaded" });
 
@@ -123,7 +141,9 @@ async function main() {
   const restam = pendentes.length - ok.length;
   if (restam > 0) console.log(`\nFaltam ${restam}. Rode de novo para continuar de onde parou.`);
 
-  await ctx.close();
+  // No modo CDP o navegador é seu: apenas desconecta, sem fechá-lo.
+  if (CDP) await browser.close();
+  else await ctx.close();
 }
 
 async function convidar(page, user) {
