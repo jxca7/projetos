@@ -211,3 +211,197 @@ export async function completeReminderAction(reminderId: string) {
 export async function goToPost(postId: string) {
   redirect(`/posts/${postId}`);
 }
+
+// ---------------------------------------------------------------------------
+// Pastas de contas
+// ---------------------------------------------------------------------------
+
+const folderNameSchema = z
+  .string()
+  .trim()
+  .min(1, "A pasta precisa de um nome.")
+  .max(40, "Nome de pasta muito longo (máximo 40).");
+
+export async function createFolderAction(name: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const parsed = folderNameSchema.safeParse(name);
+  if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0].message };
+
+  const existing = await prisma.accountFolder.findFirst({
+    where: { workspaceId: ctx.workspaceId, name: parsed.data },
+  });
+  if (existing) return { ok: false as const, error: `Já existe uma pasta chamada "${parsed.data}".` };
+
+  const count = await prisma.accountFolder.count({ where: { workspaceId: ctx.workspaceId } });
+  const folder = await prisma.accountFolder.create({
+    data: { workspaceId: ctx.workspaceId, name: parsed.data, position: count },
+  });
+
+  revalidatePath("/contas");
+  revalidatePath("/publicar");
+  return { ok: true as const, folderId: folder.id };
+}
+
+export async function renameFolderAction(folderId: string, name: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const parsed = folderNameSchema.safeParse(name);
+  if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0].message };
+
+  const folder = await prisma.accountFolder.findFirst({
+    where: { id: folderId, workspaceId: ctx.workspaceId },
+  });
+  if (!folder) return { ok: false as const, error: "Pasta não encontrada." };
+
+  const clash = await prisma.accountFolder.findFirst({
+    where: { workspaceId: ctx.workspaceId, name: parsed.data, id: { not: folderId } },
+  });
+  if (clash) return { ok: false as const, error: `Já existe uma pasta chamada "${parsed.data}".` };
+
+  await prisma.accountFolder.update({ where: { id: folderId }, data: { name: parsed.data } });
+  revalidatePath("/contas");
+  revalidatePath("/publicar");
+  return { ok: true as const };
+}
+
+/** Apaga a pasta. As contas voltam para "sem pasta" — nenhuma conta é removida. */
+export async function deleteFolderAction(folderId: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const folder = await prisma.accountFolder.findFirst({
+    where: { id: folderId, workspaceId: ctx.workspaceId },
+  });
+  if (!folder) return { ok: false as const, error: "Pasta não encontrada." };
+
+  await prisma.accountFolder.delete({ where: { id: folderId } });
+  revalidatePath("/contas");
+  revalidatePath("/publicar");
+  return { ok: true as const };
+}
+
+export async function assignAccountsToFolderAction(
+  accountIds: string[],
+  folderId: string | null,
+) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+  if (accountIds.length === 0) return { ok: false as const, error: "Nenhuma conta selecionada." };
+
+  if (folderId) {
+    const folder = await prisma.accountFolder.findFirst({
+      where: { id: folderId, workspaceId: ctx.workspaceId },
+    });
+    if (!folder) return { ok: false as const, error: "Pasta não encontrada." };
+  }
+
+  const result = await prisma.socialAccount.updateMany({
+    // O filtro por workspace impede mover conta de outro workspace.
+    where: { id: { in: accountIds }, workspaceId: ctx.workspaceId },
+    data: { folderId },
+  });
+
+  revalidatePath("/contas");
+  revalidatePath("/publicar");
+  return { ok: true as const, moved: result.count };
+}
+
+// ---------------------------------------------------------------------------
+// Operações em massa sobre contas
+// ---------------------------------------------------------------------------
+
+/**
+ * Reativa contas que foram desligadas aqui dentro.
+ *
+ * Só funciona para contas DISABLED, que é o estado de quem desconectou pelo
+ * painel: o token continua válido. Conta com token expirado ou revogado não
+ * volta por botão — precisa passar pelo OAuth de novo, porque quem derrubou
+ * o acesso foi a Meta, não nós.
+ */
+export async function reactivateAccountsAction(accountIds?: string[]) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const where = {
+    workspaceId: ctx.workspaceId,
+    status: "DISABLED" as const,
+    ...(accountIds?.length ? { id: { in: accountIds } } : {}),
+  };
+
+  const candidates = await prisma.socialAccount.findMany({
+    where,
+    select: { id: true, tokenExpiresAt: true },
+  });
+
+  const now = new Date();
+  const reusable = candidates.filter(
+    (a) => a.tokenExpiresAt === null || a.tokenExpiresAt > now,
+  );
+  const stale = candidates.filter(
+    (a) => a.tokenExpiresAt !== null && a.tokenExpiresAt <= now,
+  );
+
+  if (reusable.length > 0) {
+    await prisma.socialAccount.updateMany({
+      where: { id: { in: reusable.map((a) => a.id) } },
+      data: { status: "ACTIVE", statusMessage: null },
+    });
+  }
+  // As que já estavam com token vencido vão para o estado honesto.
+  if (stale.length > 0) {
+    await prisma.socialAccount.updateMany({
+      where: { id: { in: stale.map((a) => a.id) } },
+      data: {
+        status: "TOKEN_EXPIRED",
+        statusMessage: "Token venceu enquanto a conta estava desativada. Reconecte pelo OAuth.",
+      },
+    });
+  }
+
+  revalidatePath("/contas");
+  revalidatePath("/contas-off");
+  return { ok: true as const, reactivated: reusable.length, needsOauth: stale.length };
+}
+
+export async function disconnectAccountsAction(accountIds: string[]) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+  if (accountIds.length === 0) return { ok: false as const, error: "Nenhuma conta selecionada." };
+
+  const result = await prisma.socialAccount.updateMany({
+    where: { id: { in: accountIds }, workspaceId: ctx.workspaceId },
+    data: { status: "DISABLED", statusMessage: "Desconectada pelo usuário." },
+  });
+
+  revalidatePath("/contas");
+  revalidatePath("/contas-off");
+  return { ok: true as const, disconnected: result.count };
+}
+
+/** Recoloca na fila todos os destinos falhos de contas que voltaram a funcionar. */
+export async function retryAllFailedAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const failed = await prisma.postTarget.findMany({
+    where: {
+      post: { workspaceId: ctx.workspaceId },
+      status: "FAILED",
+      account: { status: "ACTIVE" },
+    },
+    select: { postId: true },
+    distinct: ["postId"],
+  });
+
+  let total = 0;
+  for (const { postId } of failed) {
+    total += await retryFailedTargets(postId);
+  }
+
+  revalidatePath("/saude");
+  revalidatePath("/fila");
+  return { ok: true as const, retried: total };
+}

@@ -16,7 +16,8 @@
     "seed": "tsx scripts/seed.ts",
     "status": "tsx scripts/status.ts",
     "test": "tsx --test tests/unit.test.ts",
-    "test:falhas": "tsx tests/failure-paths.ts"
+    "test:falhas": "tsx tests/failure-paths.ts",
+    "seed:escala": "tsx scripts/seed-escala.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

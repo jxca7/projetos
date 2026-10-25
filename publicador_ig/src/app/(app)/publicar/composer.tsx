@@ -15,6 +15,13 @@ export interface AccountOption {
   followersCount: number | null;
   quotaUsage: number | null;
   quotaTotal: number | null;
+  folderId: string | null;
+}
+
+export interface FolderOption {
+  id: string;
+  name: string;
+  count: number;
 }
 
 interface UploadedMedia {
@@ -50,9 +57,11 @@ function localDatetimeValue(date: Date): string {
 
 export function Composer({
   accounts,
+  folders,
   minSecondsBetweenPublishes,
 }: {
   accounts: AccountOption[];
+  folders: FolderOption[];
   minSecondsBetweenPublishes: number;
 }) {
   const router = useRouter();
@@ -63,6 +72,7 @@ export function Composer({
   const [caption, setCaption] = useState("");
   const [storyLink, setStoryLink] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [buscaConta, setBuscaConta] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [openOverride, setOpenOverride] = useState<string | null>(null);
   const [publishNow, setPublishNow] = useState(true);
@@ -84,6 +94,26 @@ export function Composer({
   );
 
   const maxMedia = type === "CAROUSEL" ? 10 : 1;
+
+  const contasVisiveis = useMemo(() => {
+    const termo = buscaConta.trim().toLowerCase();
+    if (!termo) return accounts;
+    return accounts.filter((a) => a.igUsername.toLowerCase().includes(termo));
+  }, [accounts, buscaConta]);
+
+  /** Marca ou desmarca a pasta inteira de uma vez. */
+  function toggleFolder(folderId: string | null) {
+    const ids = accounts.filter((a) => a.folderId === folderId).map((a) => a.id);
+    if (ids.length === 0) return;
+    const todasMarcadas = ids.every((id) => selected.includes(id));
+    setSelected((prev) =>
+      todasMarcadas
+        ? prev.filter((id) => !ids.includes(id))
+        : [...new Set([...prev, ...ids])],
+    );
+  }
+
+  const semPastaCount = accounts.filter((a) => !a.folderId).length;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -306,66 +336,141 @@ export function Composer({
               Nenhuma conta ativa. Conecte uma conta antes de publicar.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {accounts.map((a) => {
-                const isSelected = selected.includes(a.id);
-                const used = a.quotaUsage ?? 0;
-                const total = a.quotaTotal ?? 0;
-                const nearLimit = total > 0 && used / total >= 0.9;
-                return (
-                  <li key={a.id} className="rounded-lg border border-border">
-                    <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleAccount(a.id)}
-                          className="size-4 shrink-0"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">
-                            @{a.igUsername}
-                          </span>
-                          {total > 0 ? (
-                            <span
-                              className={
-                                nearLimit ? "text-xs text-danger" : "text-xs text-muted"
-                              }
-                            >
-                              cota {used}/{total} nas últimas 24h
+            <>
+              {folders.length > 0 || semPastaCount > 0 ? (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {folders.map((f) => {
+                    const ids = accounts.filter((a) => a.folderId === f.id).map((a) => a.id);
+                    const marcadas = ids.filter((id) => selected.includes(id)).length;
+                    const todas = ids.length > 0 && marcadas === ids.length;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => toggleFolder(f.id)}
+                        disabled={ids.length === 0}
+                        className={[
+                          "rounded-lg border px-2.5 py-1.5 text-xs transition disabled:opacity-40",
+                          todas
+                            ? "border-accent bg-accent-soft text-accent"
+                            : "border-border hover:bg-surface-2",
+                        ].join(" ")}
+                      >
+                        {f.name} · {marcadas}/{ids.length}
+                      </button>
+                    );
+                  })}
+                  {semPastaCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleFolder(null)}
+                      className="rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-surface-2"
+                    >
+                      Sem pasta · {semPastaCount}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <input
+                  value={buscaConta}
+                  onChange={(e) => setBuscaConta(e.target.value)}
+                  placeholder="Buscar conta pelo @"
+                  className="max-w-xs flex-1"
+                />
+                <Button
+                  variant="secondary"
+                  type="button"
+                  className="px-2.5 py-1.5 text-xs"
+                  onClick={() => {
+                    const ids = contasVisiveis.map((a) => a.id);
+                    const todas = ids.every((id) => selected.includes(id));
+                    setSelected((prev) =>
+                      todas
+                        ? prev.filter((id) => !ids.includes(id))
+                        : [...new Set([...prev, ...ids])],
+                    );
+                  }}
+                >
+                  {contasVisiveis.every((a) => selected.includes(a.id)) && contasVisiveis.length > 0
+                    ? "Desmarcar visíveis"
+                    : `Marcar visíveis (${contasVisiveis.length})`}
+                </Button>
+                {selected.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="px-2 py-1.5 text-xs"
+                    onClick={() => setSelected([])}
+                  >
+                    limpar ({selected.length})
+                  </Button>
+                ) : null}
+              </div>
+
+              <ul className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                {contasVisiveis.map((a) => {
+                  const isSelected = selected.includes(a.id);
+                  const used = a.quotaUsage ?? 0;
+                  const total = a.quotaTotal ?? 0;
+                  const nearLimit = total > 0 && used / total >= 0.9;
+                  return (
+                    <li key={a.id} className="rounded-lg border border-border">
+                      <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleAccount(a.id)}
+                            className="size-4 shrink-0"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              @{a.igUsername}
                             </span>
-                          ) : null}
-                        </span>
-                      </label>
-                      {isSelected && type !== "STORY" ? (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          className="px-2 py-1 text-xs"
-                          onClick={() =>
-                            setOpenOverride(openOverride === a.id ? null : a.id)
-                          }
-                        >
-                          {overrides[a.id] ? "legenda própria ✓" : "legenda própria"}
-                        </Button>
-                      ) : null}
-                    </div>
-                    {openOverride === a.id ? (
-                      <div className="border-t border-border px-3 py-3">
-                        <textarea
-                          value={overrides[a.id] ?? ""}
-                          onChange={(e) =>
-                            setOverrides((prev) => ({ ...prev, [a.id]: e.target.value }))
-                          }
-                          placeholder={`Legenda específica para @${a.igUsername}. Vazio usa a legenda principal.`}
-                          className="min-h-24"
-                        />
+                            {total > 0 ? (
+                              <span
+                                className={nearLimit ? "text-xs text-danger" : "text-xs text-muted"}
+                              >
+                                cota {used}/{total} nas últimas 24h
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                        {isSelected && type !== "STORY" ? (
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            className="px-2 py-1 text-xs"
+                            onClick={() => setOpenOverride(openOverride === a.id ? null : a.id)}
+                          >
+                            {overrides[a.id] ? "legenda própria ✓" : "legenda própria"}
+                          </Button>
+                        ) : null}
                       </div>
-                    ) : null}
+                      {openOverride === a.id ? (
+                        <div className="border-t border-border px-3 py-3">
+                          <textarea
+                            value={overrides[a.id] ?? ""}
+                            onChange={(e) =>
+                              setOverrides((prev) => ({ ...prev, [a.id]: e.target.value }))
+                            }
+                            placeholder={`Legenda específica para @${a.igUsername}. Vazio usa a legenda principal.`}
+                            className="min-h-24"
+                          />
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+                {contasVisiveis.length === 0 ? (
+                  <li className="py-6 text-center text-sm text-muted">
+                    Nenhuma conta encontrada para &ldquo;{buscaConta}&rdquo;.
                   </li>
-                );
-              })}
-            </ul>
+                ) : null}
+              </ul>
+            </>
           )}
         </Card>
       </div>

@@ -76,6 +76,7 @@ model Workspace {
   updatedAt DateTime @updatedAt
 
   memberships    Membership[]
+  folders        AccountFolder[]
   socialAccounts SocialAccount[]
   posts          Post[]
   mediaAssets    MediaAsset[]
@@ -118,6 +119,7 @@ model SocialAccount {
   id          String @id @default(cuid())
   workspaceId String
 
+  folderId       String?
   // Identificadores da Meta
   igUserId       String // IG User ID (conta profissional)
   igUsername     String
@@ -144,7 +146,8 @@ model SocialAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  folder    AccountFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   targets   PostTarget[]
   reminders Reminder[]
 
@@ -411,4 +414,22 @@ model Subscription {
   updatedAt DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// Agrupa contas para selecionar em bloco na hora de publicar.
+/// Com dezenas de contas, escolher uma a uma na lista deixa de ser viavel.
+model AccountFolder {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String?
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  accounts  SocialAccount[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
 }

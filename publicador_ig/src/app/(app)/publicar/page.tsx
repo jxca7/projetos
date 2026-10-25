@@ -15,17 +15,26 @@ export default async function PublicarPage() {
     return <Notice tone="danger">Seu perfil no workspace não permite publicar.</Notice>;
   }
 
-  const accounts = await prisma.socialAccount.findMany({
-    where: { workspaceId: ctx.workspaceId, status: "ACTIVE" },
-    orderBy: { igUsername: "asc" },
-    select: {
-      id: true,
-      igUsername: true,
-      followersCount: true,
-      quotaUsage: true,
-      quotaTotal: true,
-    },
-  });
+  const [accounts, folders] = await Promise.all([
+    prisma.socialAccount.findMany({
+      where: { workspaceId: ctx.workspaceId, status: "ACTIVE" },
+      orderBy: { igUsername: "asc" },
+      select: {
+        id: true,
+        igUsername: true,
+        followersCount: true,
+        quotaUsage: true,
+        quotaTotal: true,
+        folderId: true,
+      },
+    }),
+    prisma.accountFolder.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      // Só contas ativas contam: pasta cheia de conta off engana na hora de escolher.
+      include: { _count: { select: { accounts: { where: { status: "ACTIVE" } } } } },
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -42,6 +51,7 @@ export default async function PublicarPage() {
       ) : (
         <Composer
           accounts={accounts}
+          folders={folders.map((f) => ({ id: f.id, name: f.name, count: f._count.accounts }))}
           minSecondsBetweenPublishes={MIN_SECONDS_BETWEEN_PUBLISHES}
         />
       )}

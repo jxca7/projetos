@@ -122,6 +122,27 @@ Decisões que importam:
   português, em vez de um código `2207057` vinte minutos depois — e não gasta cota da conta.
 - **O container da Meta expira em 24h** e é recriado quando necessário.
 
+## Escala: pastas, saúde e contas off
+
+Com dezenas de contas o gargalo deixa de ser a API e passa a ser a tela.
+
+- **Pastas de contas.** Cada conta fica em no máximo uma pasta. No compositor,
+  um clique na pasta marca ou desmarca o grupo inteiro, e a busca por `@` filtra
+  a lista. A lista de Contas renderiza em blocos de 30 — jogar 100 contas de uma
+  vez deixa a página com dezenas de milhares de pixels e trava a rolagem no celular.
+- **Saúde das contas** (`/saude`): fila ao vivo com em execução, publicados na
+  última hora, pendentes, atrasados e com erro, recarregando sozinha a cada 90s.
+  Os erros das últimas 24h vêm agrupados por código, porque código repetido é
+  problema sistêmico, não azar. A lista mostra só exceção — conta fora do ar ou
+  com cota alta — e não o inventário inteiro.
+- **Atrasados** tem significado preciso: destino cujo horário passou e que **não**
+  tem retry marcado. Reagendamento por cota ou rate limit é a fila esperando de
+  propósito, não atraso. Se esse número sobe, quase sempre o worker não está rodando.
+- **Contas off** (`/contas-off`): separa token vencido, acesso revogado e desligada
+  aqui no painel, porque a ação é diferente em cada caso. Só o último volta por
+  botão; os outros exigem passar pelo OAuth, e uma autorização só reconecta todas
+  as contas que você marcar na tela da Meta.
+
 ## Scripts
 
 ```bash
@@ -133,6 +154,7 @@ pnpm lint         # eslint
 pnpm test         # testes unitários
 pnpm test:falhas  # cenários de falha contra o banco
 pnpm seed         # dados de exemplo
+pnpm seed:escala  # ~93 contas em pastas, para testar a tela em escala real
 pnpm status       # estado da fila e das cotas no terminal
 ```
 
