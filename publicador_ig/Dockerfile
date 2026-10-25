@@ -23,6 +23,15 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# O build do Next importa os módulos das rotas, e eles validam as variáveis de
+# ambiente ao carregar (o cliente Prisma é criado no import). Como o .env não
+# entra na imagem, estes valores de placeholder existem só para a validação
+# passar durante o build. NÃO são segredos e NÃO vão para o container final:
+# ficam nesta etapa de build, e em runtime o compose injeta os valores reais
+# pelo env_file (.env.docker).
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public" \
+    AUTH_SECRET="placeholder-de-build-trocado-em-runtime" \
+    APP_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000"
 # Gera o client do Prisma e compila o painel.
 RUN pnpm exec prisma generate && pnpm build
 
