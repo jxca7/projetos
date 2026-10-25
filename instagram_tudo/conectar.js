@@ -575,7 +575,7 @@ async function passarTelas(page, nome) {
     let el = null;
     let buscou = false;
 
-    while (Date.now() - inicio < 20000) {
+    while (Date.now() - inicio < 30000) {
       el = await acharTexto(page, passo.textos).catch(() => null);
       if (el) {
         alvo = i;
