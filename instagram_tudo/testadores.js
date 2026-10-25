@@ -113,6 +113,31 @@ async function digitarConta(page, usuario) {
   return true;
 }
 
+// Remove chips que ficaram SEM foto (conta inválida) clicando no "Limpar <usuário>".
+async function removerChipsSemFoto(page) {
+  return page
+    .evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]') || document;
+      const botoes = [...dlg.querySelectorAll('[aria-label^="Limpar "]')];
+      let removidos = 0;
+      for (const b of botoes) {
+        const nome = (b.getAttribute('aria-label') || '').replace(/^Limpar\s+/i, '').trim().toLowerCase();
+        // sobe até o container do chip (o 1º ancestral que contém o nome do usuário)
+        let chip = b.parentElement;
+        for (let k = 0; k < 6 && chip; k++) {
+          if ((chip.innerText || '').toLowerCase().includes(nome)) break;
+          chip = chip.parentElement;
+        }
+        if (chip && !chip.querySelector('img')) {
+          b.click();
+          removidos++;
+        }
+      }
+      return removidos;
+    })
+    .catch(() => 0);
+}
+
 async function rodar() {
   const url = lerTexto(ARQ_URL);
   if (!url || !/^https?:\/\//.test(url)) {
@@ -142,46 +167,80 @@ async function rodar() {
     await pausaHumana(1500, 2500);
     await salvarPrint(page, 'testador_01_pagina');
 
-    if (!(await clicarTexto(page, 'Adicionar pessoas', 15000))) {
-      await salvarPrint(page, 'testador_erro_adicionar_pessoas');
-      throw new Error('não achei o botão "Adicionar pessoas" (veja o print)');
-    }
-    await pausaHumana(1200, 2000);
-    await salvarPrint(page, 'testador_02_modal');
-
-    if (!(await clicarTexto(page, 'Testador do Instagram', 10000, true))) {
-      await salvarPrint(page, 'testador_erro_papel');
-      throw new Error('não achei a opção "Testador do Instagram" (veja o print)');
-    }
-    await pausaHumana(800, 1500);
-
+    const LOTE = 10; // adiciona de 10 em 10 (clica em "Adicionar", reabre, continua)
     const ok = [];
     const falhou = [];
-    for (const u of usuarios) {
-      try {
-        console.log(`  + @${u}`);
-        if (await digitarConta(page, u)) ok.push(u);
-        else falhou.push(u);
-      } catch (e) {
-        log(u, `erro ao digitar: ${e.message}`);
-        falhou.push(u);
-      }
-    }
-    await salvarPrint(page, 'testador_03_antes_adicionar');
+    const lotesComErro = [];
+    let i = 0;
+    let lote = 0;
 
-    if (!ok.length) {
-      console.log('Nenhuma conta válida (com caricatura) foi encontrada — não vou clicar em Adicionar.');
-    } else if (!(await clicarTexto(page, 'Adicionar', 10000, true))) {
-      await salvarPrint(page, 'testador_erro_botao_adicionar');
-      throw new Error('não achei o botão "Adicionar" do modal (veja o print)');
-    } else {
-      await pausaHumana(2000, 3500);
-      await salvarPrint(page, 'testador_04_fim');
+    while (i < usuarios.length) {
+      lote++;
+      // abre o modal e seleciona "Testador do Instagram"
+      if (!(await clicarTexto(page, 'Adicionar pessoas', 15000))) {
+        await salvarPrint(page, 'testador_erro_adicionar_pessoas');
+        throw new Error('não achei o botão "Adicionar pessoas" (veja o print)');
+      }
+      await pausaHumana(1200, 2000);
+      if (!(await clicarTexto(page, 'Testador do Instagram', 10000, true))) {
+        await salvarPrint(page, 'testador_erro_papel');
+        throw new Error('não achei a opção "Testador do Instagram" (veja o print)');
+      }
+      await pausaHumana(800, 1500);
+
+      // adiciona até 10 contas VÁLIDAS neste lote
+      let noLote = 0;
+      while (noLote < LOTE && i < usuarios.length) {
+        const u = usuarios[i++];
+        console.log(`  [lote ${lote}] + @${u}`);
+        let add = false;
+        try {
+          add = await digitarConta(page, u);
+        } catch (e) {
+          log(u, `erro ao digitar: ${e.message}`);
+        }
+        if (add) {
+          ok.push(u);
+          noLote++;
+        } else {
+          falhou.push(u);
+        }
+      }
+
+      // tira qualquer chip sem foto que tenha escapado (evita o erro do formulário)
+      const removidos = await removerChipsSemFoto(page);
+      if (removidos) console.log(`  [lote ${lote}] removi ${removidos} chip(s) sem foto.`);
+      await salvarPrint(page, `testador_lote${lote}_antes`);
+
+      if (!noLote) {
+        // nada válido neste lote: fecha o modal e segue
+        await clicarTexto(page, 'Cancelar', 6000, true);
+        await pausaHumana(1000, 1800);
+        continue;
+      }
+
+      if (!(await clicarTexto(page, 'Adicionar', 10000, true))) {
+        await salvarPrint(page, 'testador_erro_botao_adicionar');
+        throw new Error('não achei o botão "Adicionar" do modal (veja o print)');
+      }
+      await pausaHumana(2500, 4000);
+
+      const deuErro = await page
+        .evaluate(() => /n[ãa]o pode ser salvo|cannot be saved/i.test(document.body.innerText || ''))
+        .catch(() => false);
+      await salvarPrint(page, `testador_lote${lote}_fim`);
+      if (deuErro) {
+        lotesComErro.push(lote);
+        console.log(`  AVISO: o lote ${lote} deu "formulário não pode ser salvo".`);
+        await clicarTexto(page, 'Cancelar', 4000, true); // fecha o modal/erro para continuar
+      }
+      await pausaHumana(1500, 2500);
     }
 
     console.log('\n===== RESUMO (testadores) =====');
-    console.log(`Adicionados (chip apareceu): ${ok.length} — ${ok.map((u) => '@' + u).join(', ')}`);
-    if (falhou.length) console.log(`Não entraram: ${falhou.length} — ${falhou.map((u) => '@' + u).join(', ')}`);
+    console.log(`Adicionadas (com foto): ${ok.length} — ${ok.map((u) => '@' + u).join(', ')}`);
+    if (falhou.length) console.log(`Não entraram (sem foto/não achei): ${falhou.length} — ${falhou.map((u) => '@' + u).join(', ')}`);
+    if (lotesComErro.length) console.log(`Lotes que deram erro de formulário: ${lotesComErro.join(', ')}`);
     console.log('\nConfira os prints na pasta erros/ (testador_*.png) para ver se deu certo.');
   } finally {
     await pausaHumana(1000, 2000);
