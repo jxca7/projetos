@@ -16,6 +16,7 @@ const ARQUIVOS = {
   'bio.txt': '',
   'site.txt': '',
   'pasta.txt': '',
+  'fundo.txt': '',
   'app_url.txt': '',
   'testadores.txt':
     '# Um @usuario do Instagram por linha para adicionar como Testador do Instagram\r\n' +

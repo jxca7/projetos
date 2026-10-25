@@ -199,6 +199,18 @@ function cookiesNaPasta() {
     .map((d) => d.name);
 }
 
+// Modo "segundo plano": fundo.txt com sim/1 -> abre o Edge fora da tela (você usa o PC).
+function modoFundo() {
+  const v = (lerTexto(path.join(PASTA, 'fundo.txt')) || '').trim().toLowerCase();
+  return ['1', 'sim', 's', 'true', 'on', 'x'].includes(v);
+}
+// Args da janela do Edge conforme o modo
+function argsJanela() {
+  return modoFundo()
+    ? ['--window-position=-32000,-32000', '--window-size=1200,860']
+    : ['--start-maximized'];
+}
+
 // Move um cookie da pasta cookies/ para uma subpasta (mortos, precisa_2fa)
 function moverCookie(arquivo, sub) {
   const dir = path.join(PASTA_COOKIES, sub);
@@ -293,6 +305,8 @@ module.exports = {
   cookiesFaltando,
   cookiesNaPasta,
   moverCookie,
+  modoFundo,
+  argsJanela,
   jaFeitas,
   marcarFeita,
   acharEdge,

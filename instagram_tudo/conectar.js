@@ -10,7 +10,7 @@ const {
   fs, path, puppeteer, PASTA, PASTA_COOKIES, SUB_MORTOS, SUB_2FA,
   esperar, pausaHumana, cliqueHumano, digitarHumano, log, lerTexto,
   lerCookies, lerUsuarioSenha, cookiesFaltando, cookiesNaPasta, moverCookie, jaFeitas, marcarFeita,
-  acharEdge, lerProxy, salvarPrint,
+  acharEdge, lerProxy, salvarPrint, argsJanela,
 } = require('./comum');
 
 const ARQ_CONTAS = path.join(PASTA, 'contas.txt');
@@ -107,7 +107,7 @@ function marcarMorta(conta) {
 // ---------- Edge (um perfil só, para manter o login do site) ----------
 
 async function abrirEdge(proxy) {
-  const args = ['--no-first-run', '--no-default-browser-check', '--start-maximized', '--lang=pt-BR', '--accept-lang=pt-BR,pt'];
+  const args = ['--no-first-run', '--no-default-browser-check', ...argsJanela(), '--lang=pt-BR', '--accept-lang=pt-BR,pt'];
   if (proxy) args.push(`--proxy-server=${proxy.servidor}`);
   return puppeteer.launch({
     executablePath: acharEdge(),

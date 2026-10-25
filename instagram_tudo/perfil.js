@@ -6,7 +6,7 @@ const {
   fs, path, puppeteer, PASTA, PASTA_COOKIES, SUB_MORTOS,
   esperar, pausaHumana, cliqueHumano, digitarHumano, log, lerTexto,
   lerCookies, cookiesFaltando, cookiesNaPasta, moverCookie, jaFeitas, marcarFeita,
-  acharEdge, lerProxy,
+  acharEdge, lerProxy, argsJanela,
 } = require('./comum');
 
 const PASTA_NAVEGADOR = path.join(PASTA, 'navegador');
@@ -53,7 +53,7 @@ function bioDaConta(nome) {
 // ---------- Edge (um perfil por conta) ----------
 
 async function abrirEdge(nome, proxy) {
-  const args = ['--no-first-run', '--no-default-browser-check', '--start-maximized'];
+  const args = ['--no-first-run', '--no-default-browser-check', ...argsJanela()];
   if (proxy) args.push(`--proxy-server=${proxy.servidor}`);
   return puppeteer.launch({
     executablePath: acharEdge(),
