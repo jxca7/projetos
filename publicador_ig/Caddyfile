@@ -1,0 +1,11 @@
+# Proxy reverso com HTTPS automático.
+# O domínio vem do APP_DOMAIN (definido no .env.docker). O Caddy pede e renova
+# o certificado Let's Encrypt sozinho — basta o domínio apontar para esta
+# máquina (registro A) e as portas 80 e 443 estarem abertas.
+{$APP_DOMAIN} {
+	encode zstd gzip
+	# O painel não é exposto diretamente; só o Caddy fala com ele, pela rede
+	# interna do compose. Uploads de Reels chegam a 1 GB — o Caddy transmite
+	# o corpo sem limite por padrão, então não há teto a configurar aqui.
+	reverse_proxy web:3000
+}

@@ -35,16 +35,29 @@ docker compose ps                   # ver o que está de pé
 docker compose down                 # parar (os dados do banco ficam no volume)
 ```
 
-### Faltam duas coisas para produção de verdade
+### HTTPS já está incluso (Caddy)
 
-1. **HTTPS + domínio.** A Meta exige `https` no redirect do OAuth. Ponha um
-   proxy na frente (Caddy resolve o certificado sozinho, ou Nginx + certbot)
-   apontando o seu domínio para a porta 3000. Depois ajuste `APP_URL` e
-   `PUBLIC_MEDIA_BASE_URL` no `.env.docker` para o domínio `https`.
-2. **Mídia pública.** O driver `local` serve a mídia pelo próprio painel, o que
-   funciona num VPS único. Em escala, troque para **Cloudflare R2** (10 GB
-   grátis, compatível com S3): `STORAGE_DRIVER="s3"` e preencha as chaves S3 +
-   `PUBLIC_MEDIA_BASE_URL`.
+O `docker compose` sobe um Caddy na frente que **emite e renova o certificado
+HTTPS sozinho**. Para funcionar:
+
+1. Aponte o seu domínio para o IP da VPS (um registro **A** no seu provedor de
+   DNS).
+2. No `.env.docker`, preencha `APP_DOMAIN="seu-dominio.com"` e
+   `APP_URL="https://seu-dominio.com"`.
+3. Deixe as portas **80 e 443** abertas na VPS.
+
+Na primeira subida o Caddy pede o certificado à Let's Encrypt (leva alguns
+segundos). Depois disso, `https://seu-dominio.com` já responde.
+
+> Para testar **sem domínio** (na sua máquina), não use o Caddy: acesse o painel
+> direto em `http://localhost:3000`. O Caddy só faz sentido com um domínio real.
+
+### Falta uma coisa para escala: mídia pública
+
+O driver `local` serve a mídia pelo próprio painel (atrás do Caddy, já em
+`https`), o que funciona num VPS único. Em escala, troque para **Cloudflare R2**
+(10 GB grátis, compatível com S3): `STORAGE_DRIVER="s3"`, preencha as chaves S3 e
+aponte `PUBLIC_MEDIA_BASE_URL` para o bucket.
 
 ## Opção B — PaaS gerenciado (deploy pelo GitHub)
 
