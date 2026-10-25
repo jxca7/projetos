@@ -34,7 +34,7 @@ async function upsertMedia(
     console.log(`  ${i.level === "error" ? "ERRO" : "aviso"}: ${i.message}`);
   }
   if (hasBlockingIssue(issues)) {
-    throw new Error(`Midia ${path.basename(filePath)} reprovada na validacao.`);
+    throw new Error(`Mídia ${path.basename(filePath)} reprovada na validação.`);
   }
 
   const key = buildKey(workspaceId, path.basename(filePath));
@@ -69,13 +69,13 @@ async function main() {
       passwordHash: await bcrypt.hash(SEED_PASSWORD, 10),
     },
   });
-  console.log(`usuario: ${user.email}`);
+  console.log(`usuário: ${user.email}`);
 
-  const slug = slugify("Agencia Exemplo");
+  const slug = slugify("Agência Exemplo");
   const workspace = await prisma.workspace.upsert({
     where: { slug },
     update: {},
-    create: { name: "Agencia Exemplo", slug, timezone: "America/Sao_Paulo" },
+    create: { name: "Agência Exemplo", slug, timezone: "America/Sao_Paulo" },
   });
 
   await prisma.membership.upsert({
@@ -127,12 +127,12 @@ async function main() {
   }
   console.log(`contas conectadas: ${discovered.length}`);
 
-  // Midia de teste gerada com ffmpeg pelo script de fixtures.
+  // Mídia de teste gerada com ffmpeg pelo script de fixtures.
   const fixtures = path.resolve(process.cwd(), "scripts/fixtures");
   const reelPath = path.join(fixtures, "reel.mp4");
   const imagePath = path.join(fixtures, "post.jpg");
 
-  console.log("validando midia:");
+  console.log("validando mídia:");
   const reel = await upsertMedia(workspace.id, reelPath, "VIDEO", "video/mp4", "REEL");
   const image = await upsertMedia(workspace.id, imagePath, "IMAGE", "image/jpeg", "IMAGE");
   console.log(`  reel: ${reel.width}x${reel.height}, ${(reel.durationMs ?? 0) / 1000}s`);
@@ -149,15 +149,15 @@ async function main() {
       authorId: user.id,
       type: "REEL",
       caption:
-        "Lancamento da colecao nova. Link na bio para ver tudo.\n\n#moda #novidade #brasil",
+        "Lançamento da coleção nova. Link na bio para ver tudo.\n\n#moda #novidade #brasil",
       shareToFeed: true,
-      staggerSeconds: 10, // curto so' para o teste; o padrao do produto e' 90s
+      staggerSeconds: 10, // curto só para o teste; o padrão do produto é 90s
       publishNow: true,
       media: { create: [{ mediaId: reel.id, position: 0 }] },
       targets: {
         create: accounts.map((a, i) => ({
           accountId: a.id,
-          // Legenda propria por conta: marcas diferentes, texto diferente.
+          // Legenda própria por conta: marcas diferentes, texto diferente.
           captionOverride:
             i === 0
               ? undefined

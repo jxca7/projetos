@@ -11,7 +11,7 @@ export interface PublishJobData {
 
 export interface InsightsJobData {
   targetId: string;
-  /** Qual coleta e' esta: 1h, 24h ou 7d depois da publicacao. */
+  /** Qual coleta é esta: 1h, 24h ou 7d depois da publicação. */
   pass: "1h" | "24h" | "7d";
 }
 
@@ -27,8 +27,8 @@ const globalForQueues = globalThis as unknown as {
 };
 
 /**
- * Jobs de publicacao nao usam o retry do BullMQ: a decisao de repetir depende
- * da classe do erro da Meta (transitorio, cota, token morto) e e' tomada no
+ * Jobs de publicação não usam o retry do BullMQ: a decisão de repetir depende
+ * da classe do erro da Meta (transitorio, cota, token morto) e é tomada no
  * processador, que reagenda o job com o backoff certo. Deixar o BullMQ
  * repetindo sozinho faria o worker insistir em erro permanente.
  */
@@ -65,7 +65,7 @@ export function maintenanceQueue(): Queue<MaintenanceJobData> {
   return globalForQueues.maintenanceQueue;
 }
 
-/** Enfileira (ou reenfileira) a publicacao de um target. */
+/** Enfileira (ou reenfileira) a publicação de um target. */
 export async function enqueuePublish(
   targetId: string,
   opts: { delayMs?: number; jobId?: string } = {},
@@ -89,7 +89,7 @@ export async function cancelPublish(targetId: string): Promise<void> {
     try {
       await job.remove();
     } catch {
-      // Job em execucao nao pode ser removido; o processador checa o status
+      // Job em execução não pode ser removido; o processador checa o status
       // no banco antes de publicar e aborta sozinho.
     }
   }

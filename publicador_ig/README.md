@@ -1,36 +1,174 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Publicador IG
 
-## Getting Started
+Plataforma de agendamento e publicação em **múltiplas contas profissionais do Instagram**
+pela **API oficial da Meta** (Instagram Content Publishing API).
 
-First, run the development server:
+Serve para quem administra várias contas legítimas — agências, redes de franquia, gestores
+de tráfego, grupos com várias marcas — e precisa publicar Reels, feed, carrossel e Stories
+em todas elas com agendamento, legenda por conta, métricas e controle de falha.
+
+## O que isto é e o que não é
+
+**Faz**, porque a API oficial permite:
+
+- Publicar Reels, posts de feed, carrossel e Stories em contas Business/Creator que o
+  usuário conecta via OAuth e nas quais tem permissão de Página.
+- Agendar, distribuir no tempo entre contas, repetir o que falhou.
+- Ler métricas (alcance, views, curtidas, comentários, salvos, compartilhamentos).
+- Respeitar a cota de publicação de 24h de cada conta, lida da própria API.
+
+**Não faz**, porque a API oficial não permite e porque fazer por fora queima a conta:
+
+- Criar contas do Instagram.
+- Seguir, curtir, comentar ou enviar direct de forma automatizada.
+- Inserir link sticker, enquete ou menção em Stories. A Meta descarta esses elementos em
+  Stories publicados por API. A plataforma publica o Story e cria uma **pendência** com o
+  link pronto, para a pessoa adicionar no app enquanto o Story está no ar. É o mesmo
+  caminho que Later, Agorapulse e Publer usam — não existe outro por via oficial.
+- Publicar em contas de terceiros sem o dono autorizar pelo OAuth.
+
+## Stack
+
+| Camada | Escolha |
+| --- | --- |
+| App | Next.js 15 (App Router), React 19, TypeScript, Tailwind v4 |
+| Banco | PostgreSQL + Prisma 7 (driver adapter `@prisma/adapter-pg`) |
+| Fila | BullMQ + Redis |
+| Auth | Auth.js v5 (credenciais; OAuth da Meta é separado, para conectar contas) |
+| Mídia | Driver local (dev) ou S3/R2 (produção) |
+| Validação | ffprobe + regras de especificação do Instagram |
+
+## Rodando local
+
+Pré-requisitos: Node 22+, PostgreSQL, Redis, ffmpeg/ffprobe.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env          # preencha os valores (veja abaixo)
+pnpm db:migrate               # cria o schema
+pnpm fixtures                 # gera mídia de teste com ffmpeg
+pnpm seed                     # usuário, workspace, contas simuladas e um post
+pnpm worker                   # em um terminal: processa a fila
+pnpm dev                      # em outro: sobe o painel em :3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Login do seed: `dono@exemplo.com` / `senha-de-teste-123`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Com `META_DRIVER=mock` nada vai para o Instagram: contas, publicação, cota e falhas são
+simuladas, inclusive o processamento assíncrono do vídeo. Dá para percorrer o produto
+inteiro antes de ter o app aprovado.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Variáveis de ambiente
 
-## Learn More
+| Variável | Para que serve |
+| --- | --- |
+| `DATABASE_URL` | Postgres |
+| `REDIS_URL` | Redis da fila |
+| `APP_URL` | URL pública do painel; compõe o redirect do OAuth |
+| `AUTH_SECRET` | Sessão do painel (`openssl rand -base64 32`) |
+| `APP_ENCRYPTION_KEY` | 32 bytes em hex (`openssl rand -hex 32`). Cifra os tokens da Meta em repouso |
+| `META_APP_ID` / `META_APP_SECRET` | App da Meta |
+| `META_GRAPH_VERSION` | Versão da Graph API (ex.: `v23.0`). Suba junto com os deprecations da Meta |
+| `META_DRIVER` | `mock` (simulado) ou `graph` (API real) |
+| `STORAGE_DRIVER` | `local` ou `s3` |
+| `PUBLIC_MEDIA_BASE_URL` | **A Meta baixa a mídia por HTTP público.** Em dev, aponte para um túnel |
+| `MIN_SECONDS_BETWEEN_PUBLISHES` | Piso de intervalo entre publicações da mesma conta (padrão 300s) |
 
-To learn more about Next.js, take a look at the following resources:
+> **Atenção em desenvolvimento:** a Meta precisa alcançar `PUBLIC_MEDIA_BASE_URL` pela
+> internet para baixar o arquivo. `localhost` não funciona com `META_DRIVER=graph`. Use
+> cloudflared/ngrok e aponte a variável para o túnel.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## O que a Meta exige antes de publicar de verdade
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **Conta profissional**: cada conta do Instagram precisa ser Business ou Creator e estar
+   vinculada a uma Página do Facebook. Conta pessoal não publica por API.
+2. **App da Meta** em developers.facebook.com com o produto Instagram Graph API.
+3. **Permissões** (todas passam por App Review):
+   `instagram_basic`, `instagram_content_publish`, `instagram_manage_insights`,
+   `pages_show_list`, `pages_read_engagement`, `business_management`.
+4. **Business Verification** da empresa no Business Manager.
+5. **Redirect URI** do OAuth cadastrada: `{APP_URL}/api/meta/callback`.
 
-## Deploy on Vercel
+Sem `instagram_content_publish` aprovada, o app só lê dados. Com o app em modo de
+desenvolvimento, dá para publicar nas contas cujos usuários tenham papel no app (admin,
+desenvolvedor ou testador) — suficiente para validar a integração antes do review.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Arquitetura da publicação
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Um **Post** é o conteúdo. Um **PostTarget** é a publicação daquele conteúdo numa conta.
+Cada target vira um job na fila, com horário próprio.
+
+```
+agendar → QUEUED → CREATING_CONTAINER → WAITING_CONTAINER → PUBLISHING → PUBLISHED
+                         ↘ erro permanente/tentativas esgotadas ↘ FAILED
+```
+
+Decisões que importam:
+
+- **O estado vive no banco, não no payload do job.** Um worker que morre no meio retoma de
+  onde parou e não republica o que já foi publicado.
+- **A transição para `PUBLISHING` é atômica** (`updateMany` condicional). É isso que impede
+  dois workers publicarem o mesmo container.
+- **O retry é decidido pela classe do erro da Meta**, não pelo retry genérico da fila:
+  token revogado para a conta inteira; cota cheia reagenda sem gastar tentativa; formato de
+  vídeo inválido falha na primeira. Ver `src/lib/meta/errors.ts`.
+- **A cota de 24h é lida da API** (`content_publishing_limit`), não fixada no código. A Meta
+  já mudou esse teto mais de uma vez (25 → 50 → 100 conforme a conta).
+- **Intervalo mínimo entre publicações da mesma conta**, com reserva no Redis. Publicar em
+  várias contas no mesmo segundo é exatamente o padrão que o Instagram trata como automação
+  coordenada — o espaçamento é um piso técnico do produto, não uma preferência.
+- **A mídia é validada localmente com ffprobe** antes de qualquer chamada: duração,
+  proporção, codec, tamanho, limite de legenda e de hashtags. Erro aparece no upload, em
+  português, em vez de um código `2207057` vinte minutos depois — e não gasta cota da conta.
+- **O container da Meta expira em 24h** e é recriado quando necessário.
+
+## Scripts
+
+```bash
+pnpm dev          # painel em modo desenvolvimento
+pnpm worker       # processador da fila (precisa rodar junto)
+pnpm build        # build de produção
+pnpm typecheck    # tsc --noEmit
+pnpm lint         # eslint
+pnpm test         # testes unitários
+pnpm test:falhas  # cenários de falha contra o banco
+pnpm seed         # dados de exemplo
+pnpm status       # estado da fila e das cotas no terminal
+```
+
+### Testes
+
+`tests/unit.test.ts` cobre a classificação de erro da Meta, o backoff, a cifragem dos
+tokens e as regras de mídia e legenda. `tests/failure-paths.ts` roda contra o banco com
+`MOCK_FORCE_ERROR` para exercitar cada caminho de falha:
+
+```bash
+MOCK_FORCE_ERROR=auth      pnpm tsx tests/failure-paths.ts   # token revogado
+MOCK_FORCE_ERROR=quota     pnpm tsx tests/failure-paths.ts   # cota de 24h cheia
+MOCK_FORCE_ERROR=permanent pnpm tsx tests/failure-paths.ts   # mídia recusada
+MOCK_FORCE_ERROR=rate_limit pnpm tsx tests/failure-paths.ts  # limite de chamadas
+```
+
+## Deploy
+
+O painel e o worker são dois processos sobre o mesmo código e o mesmo banco.
+
+- Painel: qualquer host de Node (Vercel, Railway, Fly, VPS).
+- Worker: `pnpm worker` como processo contínuo. **Sem ele a fila não anda.**
+- Postgres e Redis gerenciados.
+- Mídia em S3/R2 com leitura pública: a Meta precisa baixar o arquivo.
+
+Antes de subir: troque `AUTH_SECRET` e `APP_ENCRYPTION_KEY`. Perder a chave de cifragem
+significa que todos os tokens guardados viram ilegíveis e cada conta precisa reconectar.
+
+## Limites reais que o produto respeita
+
+| Item | Limite |
+| --- | --- |
+| Publicações por conta | Janela deslizante de 24h, valor lido da API |
+| Legenda | 2.200 caracteres |
+| Hashtags | 30 por post |
+| Carrossel | 2 a 10 itens |
+| Reel | MP4/MOV, H.264 + AAC, 3s a 15min, até 1 GB |
+| Imagem de feed | JPEG/PNG, até 8 MB, de 4:5 a 1.91:1 |
+| Story | Até 60s; **sem link sticker por API** |

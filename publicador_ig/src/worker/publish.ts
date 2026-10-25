@@ -9,7 +9,7 @@ import { markPublished, releaseSlot, reserveSlot } from "@/lib/publishing/pacing
 const CONTAINER_TTL_MS = 23 * 60 * 60 * 1000;
 /** Quantas vezes checamos o processamento antes de desistir da tentativa. */
 const MAX_POLL_ATTEMPTS = 60;
-/** Tentativas de publicacao antes de marcar o target como falho. */
+/** Tentativas de publicação antes de marcar o target como falho. */
 const MAX_ATTEMPTS = 5;
 
 type Outcome =
@@ -38,11 +38,11 @@ function captionFor(postCaption: string, override: string | null): string {
 }
 
 /**
- * Processa um target ate' onde conseguir avancar e devolve o que fazer.
+ * Processa um target até onde conseguir avancar e devolve o que fazer.
  *
- * O estado vive no banco, nao no payload do job: se o worker morrer no meio,
- * o job reenfileirado retoma de onde parou e, principalmente, nao republica
- * algo que ja' foi publicado.
+ * O estado vive no banco, não no payload do job: se o worker morrer no meio,
+ * o job reenfileirado retoma de onde parou e, principalmente, não republica
+ * algo que já foi publicado.
  */
 export async function processPublishTarget(targetId: string): Promise<Outcome> {
   const target = await prisma.postTarget.findUnique({
@@ -81,7 +81,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
   if (target.attempts >= MAX_ATTEMPTS) {
     await failTarget(
       targetId,
-      target.lastError ?? `Excedeu ${MAX_ATTEMPTS} tentativas de publicacao.`,
+      target.lastError ?? `Excedeu ${MAX_ATTEMPTS} tentativas de publicação.`,
       target.lastErrorCode ?? "max_attempts",
     );
     return { kind: "failed", reason: "tentativas esgotadas" };
@@ -93,10 +93,10 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
   } catch {
     await prisma.socialAccount.update({
       where: { id: account.id },
-      data: { status: "DISABLED", statusMessage: "Token nao pode ser decifrado" },
+      data: { status: "DISABLED", statusMessage: "Token não pode ser decifrado" },
     });
-    await failTarget(targetId, "Token da conta ilegivel. Reconecte a conta.", "token_unreadable");
-    return { kind: "failed", reason: "token ilegivel" };
+    await failTarget(targetId, "Token da conta ilegível. Reconecte a conta.", "token_unreadable");
+    return { kind: "failed", reason: "token ilegível" };
   }
 
   const driver = meta();
@@ -120,7 +120,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
         data: {
           status: "QUEUED",
           nextRetryAt: new Date(Date.now() + delay),
-          lastError: `Cota de publicacao da conta cheia (${limit.quotaUsage}/${limit.quotaTotal} em 24h).`,
+          lastError: `Cota de publicação da conta cheia (${limit.quotaUsage}/${limit.quotaTotal} em 24h).`,
           lastErrorCode: "quota_full",
         },
       });
@@ -132,7 +132,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
       return { kind: "retry", delayMs: delay, reason: "cota cheia" };
     }
 
-    // ---- 2. Espacamento entre publicacoes da mesma conta ----------------
+    // ---- 2. Espacamento entre publicações da mesma conta ----------------
     // Só reserva quando já há o que publicar; criar container não consome cota.
     const needsSlot = target.status === "WAITING_CONTAINER" || Boolean(target.containerId);
     if (needsSlot) {
@@ -145,13 +145,13 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
         await logEvent(
           targetId,
           "info",
-          `Aguardando intervalo minimo entre posts da conta (${Math.round(waitMs / 1000)}s).`,
+          `Aguardando intervalo mínimo entre posts da conta (${Math.round(waitMs / 1000)}s).`,
         );
         return { kind: "retry", delayMs: waitMs, reason: "espacamento da conta" };
       }
     }
 
-    // ---- 3. Container: criar se nao existe ou se expirou ----------------
+    // ---- 3. Container: criar se não existe ou se expirou ----------------
     const containerExpired =
       target.containerCreatedAt !== null &&
       Date.now() - target.containerCreatedAt.getTime() > CONTAINER_TTL_MS;
@@ -171,15 +171,15 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
       const assets = post.media.map((pm) => pm.media);
 
       if (assets.length === 0) {
-        await failTarget(targetId, "Post sem midia anexada.", "no_media");
-        return { kind: "failed", reason: "sem midia" };
+        await failTarget(targetId, "Post sem mídia anexada.", "no_media");
+        return { kind: "failed", reason: "sem mídia" };
       }
 
       let containerId: string;
       let childIds: string[] = [];
 
       if (type === "CAROUSEL") {
-        // Cada item do carrossel e' um container proprio; o pai referencia os filhos.
+        // Cada item do carrossel é um container próprio; o pai referência os filhos.
         childIds = [];
         for (const asset of assets.slice(0, 10)) {
           const childId = await driver.createContainer({
@@ -237,7 +237,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
       });
       await logEvent(targetId, "info", `Container ${containerId} criado. Aguardando processamento.`);
 
-      // Imagem fica pronta rapido; video leva mais. Primeira checagem curta.
+      // Imagem fica pronta rapido; vídeo leva mais. Primeira checagem curta.
       const firstPoll = type === "REEL" ? 15_000 : 5_000;
       return { kind: "retry", delayMs: firstPoll, reason: "aguardando processamento" };
     }
@@ -250,7 +250,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
       if (polls > MAX_POLL_ATTEMPTS) {
         await failTarget(
           targetId,
-          "Instagram nao terminou de processar a midia dentro do tempo limite.",
+          "Instagram não terminou de processar a mídia dentro do tempo limite.",
           "container_timeout",
         );
         await releaseSlot(account.id);
@@ -260,15 +260,15 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
         where: { id: targetId },
         data: { status: "WAITING_CONTAINER", pollAttempts: polls },
       });
-      // Backoff suave: 10s nas primeiras, ate' 60s depois.
+      // Backoff suave: 10s nas primeiras, até 60s depois.
       const delay = Math.min(60_000, 10_000 + polls * 2_000);
       return { kind: "retry", delayMs: delay, reason: "processando" };
     }
 
     if (status.statusCode === "ERROR" || status.statusCode === "EXPIRED") {
       await releaseSlot(account.id);
-      const msg = status.errorMessage ?? status.status ?? "Falha no processamento da midia";
-      // Container quebrado: zera para recriar na proxima tentativa.
+      const msg = status.errorMessage ?? status.status ?? "Falha no processamento da mídia";
+      // Container quebrado: zera para recriar na próxima tentativa.
       await prisma.postTarget.update({
         where: { id: targetId },
         data: {
@@ -297,20 +297,20 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
         where: { id: targetId },
         data: { status: "PUBLISHED", publishedAt: target.publishedAt ?? new Date() },
       });
-      await logEvent(targetId, "warn", "Container ja' constava como publicado na Meta.");
+      await logEvent(targetId, "warn", "Container já constava como publicado na Meta.");
       await syncPostStatus(target.postId);
       return { kind: "done" };
     }
 
     // ---- 5. FINISHED: publicar -----------------------------------------
-    // Transicao atomica: so' um worker consegue sair de WAITING_CONTAINER
-    // para PUBLISHING, o que impede publicacao dupla.
+    // Transicao atomica: só um worker consegue sair de WAITING_CONTAINER
+    // para PUBLISHING, o que impede publicação dupla.
     const claimed = await prisma.postTarget.updateMany({
       where: { id: targetId, status: { in: ["WAITING_CONTAINER", "QUEUED"] } },
       data: { status: "PUBLISHING" },
     });
     if (claimed.count === 0) {
-      await logEvent(targetId, "info", "Outro worker ja' assumiu a publicacao.");
+      await logEvent(targetId, "info", "Outro worker já assumiu a publicação.");
       return { kind: "done" };
     }
 
@@ -337,13 +337,13 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
     });
     await logEvent(targetId, "info", `Publicado como ${igMediaId}.`, { permalink });
 
-    // Metricas: 1h, 24h e 7d depois.
+    // Métricas: 1h, 24h e 7d depois.
     await enqueueInsights(targetId, "1h", 60 * 60 * 1000);
     await enqueueInsights(targetId, "24h", 24 * 60 * 60 * 1000);
     await enqueueInsights(targetId, "7d", 7 * 24 * 60 * 60 * 1000);
 
-    // Story com link: a API oficial nao coloca link sticker, entao avisamos
-    // a pessoa para finalizar no app enquanto o Story esta' no ar.
+    // Story com link: a API oficial não coloca link sticker, então avisamos
+    // a pessoa para finalizar no app enquanto o Story está no ar.
     if (post.type === "STORY" && post.storyLink) {
       await prisma.reminder.create({
         data: {
@@ -352,7 +352,7 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
           dueAt: new Date(),
           title: `Adicionar link no Story de @${account.igUsername}`,
           body:
-            "A API oficial do Instagram nao permite inserir link sticker. " +
+            "A API oficial do Instagram não permite inserir link sticker. " +
             "Abra o Story publicado no app e adicione o link manualmente.",
           link: post.storyLink,
         },
@@ -385,7 +385,7 @@ async function handleError(
     fbTraceId: err?.fbTraceId ?? null,
   });
 
-  // Token morto: a conta inteira para, nao so' este post.
+  // Token morto: a conta inteira para, não só este post.
   if (classification === "auth") {
     await prisma.socialAccount.update({
       where: { id: accountId },
@@ -413,7 +413,7 @@ async function handleError(
     for (const postId of new Set(stuck.map((t) => t.postId))) {
       await syncPostStatus(postId);
     }
-    return { kind: "failed", reason: "token invalido" };
+    return { kind: "failed", reason: "token inválido" };
   }
 
   if (classification === "permanent" || attempts + 1 >= MAX_ATTEMPTS) {
@@ -477,7 +477,7 @@ export async function applyOutcome(targetId: string, outcome: Outcome): Promise<
   if (outcome.kind === "retry") {
     await enqueuePublish(targetId, {
       delayMs: outcome.delayMs,
-      // jobId novo a cada reagendamento: o anterior ja' foi consumido.
+      // jobId novo a cada reagendamento: o anterior já foi consumido.
       jobId: `target-${targetId}-${Date.now()}`,
     });
   }

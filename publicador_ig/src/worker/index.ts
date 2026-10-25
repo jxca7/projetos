@@ -65,10 +65,10 @@ async function main() {
     }
   });
   publishWorker.on("failed", (job, err) => {
-    log(`job de publicacao ${job?.id} estourou: ${err.message}`);
+    log(`job de publicação ${job?.id} estourou: ${err.message}`);
   });
   insightsWorker.on("failed", (job, err) => {
-    log(`job de metricas ${job?.id} falhou: ${err.message}`);
+    log(`job de métricas ${job?.id} falhou: ${err.message}`);
   });
 
   // Rotinas periodicas.

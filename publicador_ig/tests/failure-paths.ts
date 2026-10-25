@@ -6,9 +6,9 @@ import { encryptSecret } from "@/lib/crypto";
 
 /**
  * Exercita os caminhos de falha contra o banco de verdade, com o driver mock
- * forcando um erro especifico (MOCK_FORCE_ERROR).
+ * forcando um erro específico (MOCK_FORCE_ERROR).
  *
- * Roda um cenario por processo, porque o erro forcado e' lido do ambiente.
+ * Roda um cenario por processo, porque o erro forcado é lido do ambiente.
  */
 
 async function makeScenario(label: string) {
@@ -79,7 +79,7 @@ async function main() {
   console.log(`post:   status=${postAfter.status}`);
 
   if (mode === "auth") {
-    assert.equal(outcome.kind, "failed", "token morto nao deve virar retry");
+    assert.equal(outcome.kind, "failed", "token morto não deve virar retry");
     assert.equal(postAfter.status, "FAILED", "o post deve refletir a falha no painel");
     assert.equal(acc.status, "TOKEN_EXPIRED", "a conta inteira deve ser marcada");
     assert.equal(after.status, "FAILED");
@@ -88,28 +88,28 @@ async function main() {
   }
 
   if (mode === "quota") {
-    assert.equal(outcome.kind, "retry", "cota cheia deve reagendar, nao falhar");
+    assert.equal(outcome.kind, "retry", "cota cheia deve reagendar, não falhar");
     assert.equal(after.status, "QUEUED");
-    assert.equal(after.attempts, 0, "cota cheia nao deve consumir tentativa");
+    assert.equal(after.attempts, 0, "cota cheia não deve consumir tentativa");
     assert.equal(acc.quotaUsage, acc.quotaTotal);
     assert.ok((outcome as { delayMs: number }).delayMs >= 30 * 60_000, "espera longa na cota");
     console.log("OK: cota cheia reagenda sem gastar tentativa");
   }
 
   if (mode === "permanent") {
-    assert.equal(outcome.kind, "failed", "formato invalido nao deve virar retry");
+    assert.equal(outcome.kind, "failed", "formato inválido não deve virar retry");
     assert.equal(after.status, "FAILED");
     assert.equal(after.attempts, 1, "deve falhar na primeira, sem insistir");
-    assert.equal(acc.status, "ACTIVE", "erro de midia nao derruba a conta");
+    assert.equal(acc.status, "ACTIVE", "erro de mídia não derruba a conta");
     assert.equal(postAfter.status, "FAILED");
-    console.log("OK: erro permanente falha de primeira e nao afeta a conta");
+    console.log("OK: erro permanente falha de primeira e não afeta a conta");
   }
 
   if (mode === "rate_limit") {
     assert.equal(outcome.kind, "retry", "rate limit deve reagendar");
     assert.match(after.lastError ?? "", /request limit/i);
     assert.equal(acc.status, "ACTIVE");
-    console.log("OK: rate limit reagenda e nao e' confundido com cota da conta");
+    console.log("OK: rate limit reagenda e não é confundido com cota da conta");
   }
 }
 

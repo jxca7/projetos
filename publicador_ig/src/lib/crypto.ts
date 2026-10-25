@@ -27,7 +27,7 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(payload: string): string {
   const [version, ivB64, tagB64, ctB64] = payload.split(".");
   if (version !== "v1" || !ivB64 || !tagB64 || !ctB64) {
-    throw new Error("Formato de segredo cifrado invalido");
+    throw new Error("Formato de segredo cifrado inválido");
   }
   const decipher = crypto.createDecipheriv(
     ALGO,

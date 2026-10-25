@@ -41,12 +41,12 @@ class LocalStorage implements StorageDriver {
     // Impede key com ../ de escapar do diretorio de storage.
     const resolved = path.resolve(this.root, key);
     if (!resolved.startsWith(this.root + path.sep)) {
-      throw new Error("Caminho de storage invalido");
+      throw new Error("Caminho de storage inválido");
     }
     return resolved;
   }
 
-  async put(key: string, body: Buffer, _contentType: string): Promise<StoredFile> {
+  async put(key: string, body: Buffer): Promise<StoredFile> {
     const dest = this.localPath(key);
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.writeFile(dest, body);
@@ -84,7 +84,7 @@ class S3Storage implements StorageDriver {
         Key: key,
         Body: body,
         ContentType: contentType,
-        // A Meta baixa a midia por HTTP sem autenticacao.
+        // A Meta baixa a mídia por HTTP sem autenticação.
         CacheControl: "public, max-age=31536000, immutable",
       }),
     );

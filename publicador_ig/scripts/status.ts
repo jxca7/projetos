@@ -34,7 +34,7 @@ async function main() {
 
   const metrics = await prisma.metricSnapshot.count();
   const reminders = await prisma.reminder.count();
-  console.log(`\nsnapshots de metrica: ${metrics}   reminders: ${reminders}`);
+  console.log(`\nsnapshots de métrica: ${metrics}   reminders: ${reminders}`);
 }
 
 main().then(() => process.exit(0));

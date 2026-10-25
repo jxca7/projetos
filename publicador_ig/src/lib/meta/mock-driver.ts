@@ -13,11 +13,11 @@ import type {
 
 /**
  * Driver de desenvolvimento. Imita o comportamento da Graph API, inclusive o
- * que mais costuma morder em producao: o container nao fica pronto na hora, a
+ * que mais costuma morder em produção: o container não fica pronto na hora, a
  * cota de 24h existe, e uma fracao das chamadas falha de forma transitoria.
  *
  * Serve para rodar a plataforma inteira (fila, retry, dashboard) sem bater na
- * Meta. Nao publica nada em lugar nenhum.
+ * Meta. Não publica nada em lugar nenhum.
  */
 
 interface MockContainer {
@@ -35,11 +35,11 @@ const QUOTA_TOTAL = 50;
 const QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Chance de falha transitoria, para exercitar o caminho de retry. */
 const TRANSIENT_FAILURE_RATE = Number(process.env.MOCK_FAILURE_RATE ?? "0.08");
-/** Quanto tempo o "processamento" do video leva. */
+/** Quanto tempo o "processamento" do vídeo leva. */
 const PROCESSING_MS = Number(process.env.MOCK_PROCESSING_MS ?? "4000");
 
 /**
- * Forca um erro especifico, para exercitar os caminhos de falha em
+ * Forca um erro específico, para exercitar os caminhos de falha em
  * desenvolvimento e nos testes: auth | quota | rate_limit | permanent.
  */
 const FORCE_ERROR = process.env.MOCK_FORCE_ERROR ?? "";
@@ -67,7 +67,7 @@ function forcedError(): MetaApiError | null {
       });
     case "permanent":
       return new MetaApiError({
-        message: "[mock] The video format is not supported",
+        message: "[mock] The vídeo format is not supported",
         code: 2207026,
         httpStatus: 400,
       });
@@ -85,6 +85,10 @@ function recentPublishes(igUserId: string): number[] {
 
 export class MockDriver implements MetaDriver {
   readonly name = "mock" as const;
+
+  async exchangeCodeForToken(code: string): Promise<string> {
+    return `mock-short-lived-${code.slice(0, 8)}`;
+  }
 
   async exchangeForLongLivedToken(shortLivedToken: string): Promise<LongLivedToken> {
     return {
@@ -112,7 +116,7 @@ export class MockDriver implements MetaDriver {
       return { quotaUsage: QUOTA_TOTAL, quotaTotal: QUOTA_TOTAL };
     }
     // Apenas erros que esse endpoint pode de fato devolver. Um erro de formato
-    // de video, por exemplo, so' aparece na criacao do container.
+    // de vídeo, por exemplo, só aparece na criação do container.
     if (FORCE_ERROR === "auth" || FORCE_ERROR === "rate_limit") {
       const forced = forcedError();
       if (forced) throw forced;
@@ -125,7 +129,7 @@ export class MockDriver implements MetaDriver {
     if (forced) throw forced;
     if (Math.random() < TRANSIENT_FAILURE_RATE) {
       throw new MetaApiError({
-        message: "[mock] Falha temporaria ao buscar a midia na URL informada",
+        message: "[mock] Falha temporaria ao buscar a mídia na URL informada",
         code: 2207020,
         httpStatus: 400,
       });
@@ -142,14 +146,14 @@ export class MockDriver implements MetaDriver {
     }
     if (input.type === "REEL" && !input.videoUrl) {
       throw new MetaApiError({
-        message: "[mock] Reel exige video_url",
+        message: "[mock] Reel exige vídeo_url",
         code: 2207006,
         httpStatus: 400,
       });
     }
 
     const id = `mock-container-${crypto.randomBytes(10).toString("hex")}`;
-    // Video demora mais que imagem para ficar pronto, como na vida real.
+    // Vídeo demora mais que imagem para ficar pronto, como na vida real.
     const delay = input.type === "REEL" ? PROCESSING_MS : Math.round(PROCESSING_MS / 4);
     containers.set(id, {
       id,
@@ -164,16 +168,16 @@ export class MockDriver implements MetaDriver {
   async getContainerStatus(containerId: string): Promise<ContainerStatus> {
     const c = containers.get(containerId);
     if (!c) {
-      return { statusCode: "EXPIRED", status: "[mock] container nao encontrado", errorMessage: "expirado" };
+      return { statusCode: "EXPIRED", status: "[mock] container não encontrado", errorMessage: "expirado" };
     }
     if (Date.now() < c.readyAt) {
-      return { statusCode: "IN_PROGRESS", status: "[mock] processando midia", errorMessage: null };
+      return { statusCode: "IN_PROGRESS", status: "[mock] processando mídia", errorMessage: null };
     }
     if (c.willFail) {
       return {
         statusCode: "ERROR",
-        status: "[mock] falha no processamento do video",
-        errorMessage: "[mock] falha no processamento do video",
+        status: "[mock] falha no processamento do vídeo",
+        errorMessage: "[mock] falha no processamento do vídeo",
       };
     }
     return { statusCode: "FINISHED", status: "[mock] pronto", errorMessage: null };

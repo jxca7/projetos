@@ -21,8 +21,8 @@ interface FfprobeStream {
 }
 
 /**
- * Le as caracteristicas do arquivo com ffprobe. Se o ffprobe nao estiver
- * instalado, devolve nulos e a validacao se limita ao que da' pra checar
+ * Le as caracteristicas do arquivo com ffprobe. Se o ffprobe não estiver
+ * instalado, devolve nulos e a validação se limita ao que da' pra checar
  * sem ele (mime e tamanho).
  */
 export async function probeMedia(filePath: string): Promise<ProbeResult> {

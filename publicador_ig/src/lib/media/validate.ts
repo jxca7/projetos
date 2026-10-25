@@ -1,14 +1,14 @@
 import type { ProbeResult } from "./probe";
 
 /**
- * Especificacoes de midia do Instagram para publicacao via API.
+ * Especificações de mídia do Instagram para publicação via API.
  *
  * Validar aqui tem dois ganhos: a pessoa recebe o erro na hora do upload, em
- * portugues, em vez de um codigo 2207057 vinte minutos depois; e nao gastamos
- * uma das ~50 publicacoes diarias da conta numa midia que ia ser recusada.
+ * portugues, em vez de um código 2207057 vinte minutos depois; e não gastamos
+ * uma das ~50 publicações diarias da conta numa mídia que ia ser recusada.
  *
- * Numeros conferidos com a documentacao da Meta; sao os limites praticos, nao
- * os recomendados (recomendado para Reels e' 1080x1920, 9:16).
+ * Numeros conferidos com a documentacao da Meta; são os limites praticos, não
+ * os recomendados (recomendado para Reels é 1080x1920, 9:16).
  */
 export const SPECS = {
   image: {
@@ -64,7 +64,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
 
   if (usedFor === "REEL") {
     if (kind !== "VIDEO") {
-      issues.push({ level: "error", field: "kind", message: "Reel exige um arquivo de video." });
+      issues.push({ level: "error", field: "kind", message: "Reel exige um arquivo de vídeo." });
       return issues;
     }
     const s = SPECS.reel;
@@ -72,14 +72,14 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
       issues.push({
         level: "error",
         field: "mimeType",
-        message: `Formato ${mimeType} nao aceito em Reels. Use MP4 (H.264 + AAC) ou MOV.`,
+        message: `Formato ${mimeType} não aceito em Reels. Use MP4 (H.264 + AAC) ou MOV.`,
       });
     }
     if (sizeBytes > s.maxBytes) {
       issues.push({
         level: "error",
         field: "sizeBytes",
-        message: `Video de ${mb(sizeBytes)} excede o limite de ${mb(s.maxBytes)}.`,
+        message: `Vídeo de ${mb(sizeBytes)} excede o limite de ${mb(s.maxBytes)}.`,
       });
     }
     if (probe.durationMs !== null) {
@@ -94,7 +94,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
         issues.push({
           level: "error",
           field: "duration",
-          message: `Reel pode ter no maximo 15 minutos (este tem ${Math.round(probe.durationMs / 60000)} min).`,
+          message: `Reel pode ter no máximo 15 minutos (este tem ${Math.round(probe.durationMs / 60000)} min).`,
         });
       }
     }
@@ -102,34 +102,34 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
       issues.push({
         level: "error",
         field: "aspect",
-        message: `Proporcao ${aspect.toFixed(2)}:1 fora do permitido para Reels.`,
+        message: `Proporção ${aspect.toFixed(2)}:1 fora do permitido para Reels.`,
       });
     }
     if (aspect !== null && Math.abs(aspect - s.recommendedAspect) > 0.08) {
       issues.push({
         level: "warning",
         field: "aspect",
-        message: `Proporcao ${aspect.toFixed(2)}:1 nao e' 9:16 — o Instagram vai cortar ou adicionar barras.`,
+        message: `Proporção ${aspect.toFixed(2)}:1 não é 9:16 — o Instagram vai cortar ou adicionar barras.`,
       });
     }
     if (probe.videoCodec && !(s.videoCodecs as readonly string[]).includes(probe.videoCodec.toLowerCase())) {
       issues.push({
         level: "warning",
         field: "videoCodec",
-        message: `Codec de video ${probe.videoCodec} pode ser recusado. O aceito com seguranca e' H.264.`,
+        message: `Codec de vídeo ${probe.videoCodec} pode ser recusado. O aceito com segurança é H.264.`,
       });
     }
     if (!probe.hasAudio) {
       issues.push({
         level: "warning",
-        field: "audio",
-        message: "Video sem faixa de audio. Reels sem audio tem entrega pior e podem falhar no processamento.",
+        field: "áudio",
+        message: "Vídeo sem faixa de áudio. Reels sem áudio tem entrega pior e podem falhar no processamento.",
       });
     } else if (probe.audioCodec && !(s.audioCodecs as readonly string[]).includes(probe.audioCodec.toLowerCase())) {
       issues.push({
         level: "warning",
         field: "audioCodec",
-        message: `Codec de audio ${probe.audioCodec} pode ser recusado. Use AAC.`,
+        message: `Codec de áudio ${probe.audioCodec} pode ser recusado. Use AAC.`,
       });
     }
     return issues;
@@ -146,7 +146,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
         issues.push({
           level: "error",
           field: "mimeType",
-          message: `Formato ${mimeType} nao aceito. Use JPEG ou PNG.`,
+          message: `Formato ${mimeType} não aceito. Use JPEG ou PNG.`,
         });
       }
       if (sizeBytes > s.maxBytes) {
@@ -160,7 +160,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
         issues.push({
           level: "error",
           field: "aspect",
-          message: `Proporcao ${aspect.toFixed(2)}:1 fora do permitido (de 4:5 a 1.91:1).`,
+          message: `Proporção ${aspect.toFixed(2)}:1 fora do permitido (de 4:5 a 1.91:1).`,
         });
       }
     }
@@ -171,7 +171,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
   const s = SPECS.story;
   if (kind === "IMAGE") {
     if (!(s.imageMimeTypes as readonly string[]).includes(mimeType)) {
-      issues.push({ level: "error", field: "mimeType", message: `Formato ${mimeType} nao aceito em Stories.` });
+      issues.push({ level: "error", field: "mimeType", message: `Formato ${mimeType} não aceito em Stories.` });
     }
     if (sizeBytes > s.maxImageBytes) {
       issues.push({
@@ -182,20 +182,20 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
     }
   } else {
     if (!(s.videoMimeTypes as readonly string[]).includes(mimeType)) {
-      issues.push({ level: "error", field: "mimeType", message: `Formato ${mimeType} nao aceito em Stories.` });
+      issues.push({ level: "error", field: "mimeType", message: `Formato ${mimeType} não aceito em Stories.` });
     }
     if (sizeBytes > s.maxVideoBytes) {
       issues.push({
         level: "error",
         field: "sizeBytes",
-        message: `Video de ${mb(sizeBytes)} excede o limite de ${mb(s.maxVideoBytes)} para Stories.`,
+        message: `Vídeo de ${mb(sizeBytes)} excede o limite de ${mb(s.maxVideoBytes)} para Stories.`,
       });
     }
     if (probe.durationMs !== null && probe.durationMs > s.maxDurationMs) {
       issues.push({
         level: "error",
         field: "duration",
-        message: `Story aceita no maximo 60 segundos (este tem ${(probe.durationMs / 1000).toFixed(0)}s).`,
+        message: `Story aceita no máximo 60 segundos (este tem ${(probe.durationMs / 1000).toFixed(0)}s).`,
       });
     }
   }
@@ -203,7 +203,7 @@ export function validateMedia(input: ValidationInput): ValidationIssue[] {
     issues.push({
       level: "warning",
       field: "aspect",
-      message: `Story fora de 9:16 (${aspect.toFixed(2)}:1) sera cortado.`,
+      message: `Story fora de 9:16 (${aspect.toFixed(2)}:1) será cortado.`,
     });
   }
   return issues;
@@ -240,7 +240,7 @@ export function validateCaption(caption: string): ValidationIssue[] {
     issues.push({
       level: "warning",
       field: "caption",
-      message: `${mentions.length} mencoes na legenda. Acima de 20 o Instagram costuma tratar como spam.`,
+      message: `${mentions.length} menções na legenda. Acima de 20 o Instagram costuma tratar como spam.`,
     });
   }
   return issues;

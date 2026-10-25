@@ -24,14 +24,14 @@ export async function processMaintenance(data: MaintenanceJobData): Promise<void
           },
         });
       } catch {
-        // Cota e' informativa no painel; falhar aqui nao bloqueia nada.
+        // Cota é informativa no painel; falhar aqui não bloqueia nada.
       }
       return;
     }
 
     case "check-token-expiry": {
-      // Marca contas cujo token esta' perto de expirar, para o painel avisar
-      // antes de a publicacao comecar a falhar.
+      // Marca contas cujo token está perto de expirar, para o painel avisar
+      // antes de a publicação começar a falhar.
       const soon = new Date(Date.now() + TOKEN_WARNING_DAYS * 24 * 60 * 60 * 1000);
       const expiring = await prisma.socialAccount.findMany({
         where: { status: "ACTIVE", tokenExpiresAt: { not: null, lte: soon } },
@@ -58,7 +58,7 @@ export async function processMaintenance(data: MaintenanceJobData): Promise<void
         take: 200,
       });
       // O envio (push/e-mail) entra aqui. Por ora marcamos como enviado para
-      // o painel mostrar na lista de pendencias da pessoa.
+      // o painel mostrar na lista de pendências da pessoa.
       if (due.length > 0) {
         await prisma.reminder.updateMany({
           where: { id: { in: due.map((r) => r.id) } },

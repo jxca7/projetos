@@ -8,7 +8,7 @@ export interface DiscoveredAccount {
   pageName: string | null;
   profilePicUrl: string | null;
   followersCount: number | null;
-  /** Token de pagina de longa duracao, usado nas publicacoes desta conta. */
+  /** Token de página de longa duração, usado nas publicações desta conta. */
   accessToken: string;
 }
 
@@ -40,7 +40,7 @@ export interface CreateContainerInput {
   accessToken: string;
   type: PostTypeName;
   caption?: string;
-  /** URL publica da midia. A Meta baixa o arquivo deste endereco. */
+  /** URL publica da mídia. A Meta baixa o arquivo deste endereço. */
   imageUrl?: string;
   videoUrl?: string;
   /** Reels */
@@ -70,6 +70,8 @@ export interface MediaMetrics {
  */
 export interface MetaDriver {
   readonly name: "graph" | "mock";
+  /** Troca o `code` do OAuth pelo token de usuário de curta duração. */
+  exchangeCodeForToken(code: string, redirectUri: string): Promise<string>;
   exchangeForLongLivedToken(shortLivedToken: string): Promise<LongLivedToken>;
   listInstagramAccounts(userAccessToken: string): Promise<DiscoveredAccount[]>;
   getPublishingLimit(igUserId: string, accessToken: string): Promise<PublishingLimit>;

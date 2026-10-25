@@ -20,9 +20,11 @@ interface GraphErrorBody {
 
 function withProof(params: Record<string, string>, accessToken: string): Record<string, string> {
   const secret = env().META_APP_SECRET;
+  // A troca do `code` do OAuth é a única chamada sem access token.
+  if (!accessToken) return { ...params };
   const out: Record<string, string> = { ...params, access_token: accessToken };
-  // Exigido quando "Require App Secret" esta ligado no app. Mandar sempre e'
-  // inofensivo e evita um 400 dificil de diagnosticar depois.
+  // Exigido quando "Require App Secret" esta ligado no app. Mandar sempre é
+  // inofensivo e evita um 400 difícil de diagnosticar depois.
   if (secret) out.appsecret_proof = appSecretProof(accessToken, secret);
   return out;
 }

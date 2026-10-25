@@ -23,10 +23,10 @@ export class ScheduleError extends Error {
 /**
  * Coloca um post na fila, um job por conta de destino.
  *
- * As publicacoes sao distribuidas no tempo (stagger) em vez de disparadas
+ * As publicações são distribuídas no tempo (stagger) em vez de disparadas
  * juntas. Isso existe por dois motivos: a Graph API tem teto de chamadas, e
- * dezenas de contas publicando o mesmo conteudo no mesmo segundo e' o padrao
- * que o Instagram classifica como automacao coordenada.
+ * dezenas de contas publicando o mesmo conteúdo no mesmo segundo é o padrão
+ * que o Instagram classifica como automação coordenada.
  */
 export async function schedulePost(postId: string): Promise<ScheduleResult> {
   const post = await prisma.post.findUnique({
@@ -38,7 +38,7 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
     },
   });
 
-  if (!post) throw new ScheduleError(["Post nao encontrado."]);
+  if (!post) throw new ScheduleError(["Post não encontrado."]);
 
   const issues: string[] = [];
   const warnings: string[] = [];
@@ -47,16 +47,16 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
     issues.push("Selecione pelo menos uma conta de destino.");
   }
   if (post.media.length === 0) {
-    issues.push("Anexe a midia do post.");
+    issues.push("Anexe a mídia do post.");
   }
   if (post.type === "CAROUSEL" && (post.media.length < 2 || post.media.length > 10)) {
     issues.push(`Carrossel precisa de 2 a 10 itens (tem ${post.media.length}).`);
   }
   if (post.type !== "CAROUSEL" && post.media.length > 1) {
-    warnings.push(`Post do tipo ${post.type} usa apenas a primeira midia.`);
+    warnings.push(`Post do tipo ${post.type} usa apenas a primeira mídia.`);
   }
   if (post.requiresApproval && !post.approvedAt) {
-    issues.push("Post precisa de aprovacao antes de ser agendado.");
+    issues.push("Post precisa de aprovação antes de ser agendado.");
   }
 
   // Legenda: a do post e cada override por conta.
@@ -75,7 +75,7 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
 
   const inactive = post.targets.filter((t) => t.account.status !== "ACTIVE");
   for (const t of inactive) {
-    warnings.push(`@${t.account.igUsername} esta ${t.account.status} e sera ignorada.`);
+    warnings.push(`@${t.account.igUsername} esta ${t.account.status} e será ignorada.`);
   }
 
   const activeTargets = post.targets.filter((t) => t.account.status === "ACTIVE");
@@ -83,11 +83,11 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
     issues.push("Nenhuma conta de destino esta ativa.");
   }
 
-  // Limite do plano: numero de contas conectadas.
+  // Limite do plano: número de contas conectadas.
   const maxAccounts = post.workspace.subscription?.maxAccounts ?? 2;
   if (activeTargets.length > maxAccounts) {
     issues.push(
-      `Seu plano permite ${maxAccounts} conta(s) por post; voce selecionou ${activeTargets.length}.`,
+      `Seu plano permite ${maxAccounts} conta(s) por post; você selecionou ${activeTargets.length}.`,
     );
   }
 
@@ -98,14 +98,14 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
     : (post.scheduledAt ?? new Date());
 
   if (!post.publishNow && baseAt.getTime() < Date.now() - 60_000) {
-    throw new ScheduleError(["O horario agendado ja' passou."]);
+    throw new ScheduleError(["O horário agendado já passou."]);
   }
 
-  // Stagger: no minimo o intervalo configurado no post, e nunca menos do que
-  // o piso de seguranca quando a mesma conta aparece mais de uma vez.
+  // Stagger: no mínimo o intervalo configurado no post, e nunca menos do que
+  // o piso de segurança quando a mesma conta aparece mais de uma vez.
   const stagger = Math.max(5, post.staggerSeconds);
 
-  // Agrupa por conta para espacar publicacoes repetidas na mesma conta.
+  // Agrupa por conta para espacar publicações repetidas na mesma conta.
   const perAccountCount = new Map<string, number>();
 
   const plan = activeTargets.map((t, index) => {
@@ -136,7 +136,7 @@ export async function schedulePost(postId: string): Promise<ScheduleResult> {
         },
       });
     }
-    // Contas inativas ficam explicitamente marcadas, nao somem em silencio.
+    // Contas inativas ficam explicitamente marcadas, não somem em silêncio.
     if (inactive.length > 0) {
       await tx.postTarget.updateMany({
         where: { id: { in: inactive.map((t) => t.id) } },

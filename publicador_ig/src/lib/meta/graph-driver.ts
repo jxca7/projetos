@@ -14,12 +14,12 @@ import type {
 } from "./types";
 
 /**
- * Metricas de midia do Instagram.
+ * Métricas de mídia do Instagram.
  *
- * A Meta mexe nos nomes de metrica com alguma frequencia (impressions e
- * video_views sairam, views entrou). Em vez de fixar uma lista e quebrar numa
- * mudanca, pedimos a lista cheia e, se a API reclamar de alguma metrica, caimos
- * para o conjunto minimo que sempre existiu.
+ * A Meta mexe nos nomes de métrica com alguma frequência (impressions e
+ * vídeo_views sairam, views entrou). Em vez de fixar uma lista e quebrar numa
+ * mudanca, pedimos a lista cheia e, se a API reclamar de alguma métrica, caimos
+ * para o conjunto mínimo que sempre existiu.
  */
 const METRICS_BY_TYPE: Record<PostTypeName, string[]> = {
   REEL: ["reach", "views", "likes", "comments", "shares", "saved", "total_interactions"],
@@ -48,10 +48,25 @@ function readMetric(res: InsightsResponse, name: string): number | null {
 export class GraphDriver implements MetaDriver {
   readonly name = "graph" as const;
 
+  /** Troca o `code` devolvido pelo dialogo de OAuth por um access token. */
+  async exchangeCodeForToken(code: string, redirectUri: string): Promise<string> {
+    const { META_APP_ID, META_APP_SECRET } = env();
+    const res = await graph.get<{ access_token: string }>("/oauth/access_token", "", {
+      client_id: META_APP_ID,
+      client_secret: META_APP_SECRET,
+      redirect_uri: redirectUri,
+      code,
+    });
+    if (!res?.access_token) {
+      throw new MetaApiError({ message: "OAuth não devolveu access_token", httpStatus: 502 });
+    }
+    return res.access_token;
+  }
+
   /**
-   * Troca o token curto do Facebook Login por um de longa duracao (~60 dias).
-   * Tokens de pagina derivados deste nao expiram enquanto o usuario mantiver a
-   * permissao, mas guardamos a validade para avisar antes de quebrar.
+   * Troca o token curto do Facebook Login por um de longa duração (~60 dias).
+   * Tokens de página derivados deste não expiram enquanto o usuário mantiver a
+   * permissão, mas guardamos a validade para avisar antes de quebrar.
    */
   async exchangeForLongLivedToken(shortLivedToken: string): Promise<LongLivedToken> {
     const { META_APP_ID, META_APP_SECRET } = env();
@@ -72,8 +87,8 @@ export class GraphDriver implements MetaDriver {
   }
 
   /**
-   * Descobre as contas profissionais do Instagram que o usuario autorizou,
-   * passando pelas Paginas do Facebook as quais elas estao vinculadas.
+   * Descobre as contas profissionais do Instagram que o usuário autorizou,
+   * passando pelas Páginas do Facebook as quais elas estão vinculadas.
    */
   async listInstagramAccounts(userAccessToken: string): Promise<DiscoveredAccount[]> {
     interface PagesResponse {
@@ -105,7 +120,7 @@ export class GraphDriver implements MetaDriver {
 
       for (const page of res.data ?? []) {
         const ig = page.instagram_business_account;
-        if (!ig?.id) continue; // Pagina sem Instagram profissional vinculado
+        if (!ig?.id) continue; // Página sem Instagram profissional vinculado
         accounts.push({
           igUserId: ig.id,
           igUsername: ig.username ?? ig.id,
@@ -114,7 +129,7 @@ export class GraphDriver implements MetaDriver {
           pageName: page.name ?? null,
           profilePicUrl: ig.profile_picture_url ?? null,
           followersCount: ig.followers_count ?? null,
-          // O token de pagina e' o que autoriza publicar naquela conta.
+          // O token de página é o que autoriza publicar naquela conta.
           accessToken: page.access_token ?? userAccessToken,
         });
       }
@@ -126,8 +141,8 @@ export class GraphDriver implements MetaDriver {
   }
 
   /**
-   * Cota de publicacao da conta na janela deslizante de 24h.
-   * Nao fixamos o teto no codigo: a propria API informa o quota_total, que
+   * Cota de publicação da conta na janela deslizante de 24h.
+   * Não fixamos o teto no código: a própria API informa o quota_total, que
    * varia por conta e ja mudou de valor algumas vezes (25 -> 50 -> 100).
    */
   async getPublishingLimit(igUserId: string, accessToken: string): Promise<PublishingLimit> {
@@ -169,7 +184,7 @@ export class GraphDriver implements MetaDriver {
         params.media_type = "STORIES";
         if (input.videoUrl) params.video_url = input.videoUrl;
         else params.image_url = input.imageUrl;
-        // Nota: a API oficial ignora stickers (link, enquete, mencao).
+        // Nota: a API oficial ignora stickers (link, enquete, menção).
         // O link vira um Reminder para a pessoa colar no app.
         break;
 
@@ -194,7 +209,7 @@ export class GraphDriver implements MetaDriver {
 
     const res = await graph.post<{ id: string }>(`/${input.igUserId}/media`, input.accessToken, params);
     if (!res?.id) {
-      throw new MetaApiError({ message: "Graph API nao retornou id do container", httpStatus: 502 });
+      throw new MetaApiError({ message: "Graph API não retornou id do container", httpStatus: 502 });
     }
     return res.id;
   }
@@ -209,7 +224,7 @@ export class GraphDriver implements MetaDriver {
     return {
       statusCode: code,
       status: res.status ?? null,
-      // Em erro, o campo `status` traz a descricao do que deu errado.
+      // Em erro, o campo `status` traz a descrição do que deu errado.
       errorMessage: code === "ERROR" || code === "EXPIRED" ? res.status ?? null : null,
     };
   }
@@ -219,7 +234,7 @@ export class GraphDriver implements MetaDriver {
       creation_id: containerId,
     });
     if (!res?.id) {
-      throw new MetaApiError({ message: "Graph API nao retornou id da midia publicada", httpStatus: 502 });
+      throw new MetaApiError({ message: "Graph API não retornou id da mídia publicada", httpStatus: 502 });
     }
     return res.id;
   }
@@ -231,7 +246,7 @@ export class GraphDriver implements MetaDriver {
       });
       return res.permalink ?? null;
     } catch {
-      // Permalink e' cosmetico: nao vale derrubar uma publicacao bem-sucedida.
+      // Permalink é cosmético: não vale derrubar uma publicação bem-sucedida.
       return null;
     }
   }
@@ -253,7 +268,7 @@ export class GraphDriver implements MetaDriver {
       res = await fetchMetrics(wanted);
     } catch (e) {
       if (e instanceof MetaApiError && e.classification === "permanent") {
-        // Metrica renomeada/removida pela Meta: tenta o conjunto minimo.
+        // Métrica renomeada/removida pela Meta: tenta o conjunto mínimo.
         try {
           res = await fetchMetrics(FALLBACK_METRICS);
         } catch {

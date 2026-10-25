@@ -11,11 +11,11 @@ async function main() {
     const r = await schedulePost(postId);
     console.log(`${r.queued} destinos na fila`);
     console.log(`primeiro: ${r.firstAt.toISOString()}`);
-    console.log(`ultimo:   ${r.lastAt.toISOString()}`);
+    console.log(`último:   ${r.lastAt.toISOString()}`);
     for (const w of r.warnings) console.log(`aviso: ${w}`);
   } catch (e) {
     if (e instanceof ScheduleError) {
-      console.error("nao foi possivel agendar:");
+      console.error("não foi possível agendar:");
       for (const i of e.issues) console.error(`  - ${i}`);
       process.exit(1);
     }

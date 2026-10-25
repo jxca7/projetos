@@ -4,7 +4,7 @@ import { meta, MetaApiError } from "@/lib/meta";
 import type { PostTypeName } from "@/lib/meta/types";
 import type { InsightsJobData } from "@/lib/queue";
 
-/** Coleta as metricas de uma publicacao e grava um snapshot. */
+/** Coleta as métricas de uma publicação e grava um snapshot. */
 export async function processInsights(data: InsightsJobData): Promise<void> {
   const target = await prisma.postTarget.findUnique({
     where: { id: data.targetId },
@@ -41,13 +41,13 @@ export async function processInsights(data: InsightsJobData): Promise<void> {
       },
     });
   } catch (e) {
-    // Metricas sao secundarias: registramos e seguimos. O BullMQ repete o job.
+    // Métricas são secundarias: registramos e seguimos. O BullMQ repete o job.
     const message = e instanceof Error ? e.message : String(e);
     await prisma.targetEvent.create({
       data: {
         targetId: target.id,
         level: "warn",
-        message: `Falha ao coletar metricas (${data.pass}): ${message}`,
+        message: `Falha ao coletar métricas (${data.pass}): ${message}`,
       },
     });
     if (e instanceof MetaApiError && e.classification === "auth") {
@@ -55,7 +55,7 @@ export async function processInsights(data: InsightsJobData): Promise<void> {
         where: { id: target.accountId },
         data: { status: "TOKEN_EXPIRED", statusMessage: message },
       });
-      return; // nao vale repetir
+      return; // não vale repetir
     }
     throw e;
   }

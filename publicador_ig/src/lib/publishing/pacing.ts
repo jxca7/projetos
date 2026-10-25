@@ -1,12 +1,12 @@
 import { redis } from "../redis";
 
 /**
- * Espacamento minimo entre publicacoes na MESMA conta.
+ * Espacamento mínimo entre publicações na MESMA conta.
  *
- * A cota de 24h da Meta nao e' o unico limite que importa: disparar 10 posts
- * seguidos no mesmo minuto numa conta e' exatamente o padrao que o Instagram
- * trata como automacao abusiva. Esse intervalo e' um piso tecnico do produto,
- * nao uma preferencia do usuario.
+ * A cota de 24h da Meta não é o único limite que importa: disparar 10 posts
+ * seguidos no mesmo minuto numa conta é exatamente o padrão que o Instagram
+ * trata como automação abusiva. Esse intervalo é um piso tecnico do produto,
+ * não uma preferência do usuário.
  */
 export const MIN_SECONDS_BETWEEN_PUBLISHES = Number(
   process.env.MIN_SECONDS_BETWEEN_PUBLISHES ?? "300",
@@ -21,10 +21,10 @@ function reservationKey(accountId: string): string {
 }
 
 /**
- * Tenta reservar o slot de publicacao da conta.
+ * Tenta reservar o slot de publicação da conta.
  *
  * Devolve 0 se pode publicar agora, ou quantos ms faltam. A reserva usa SET NX
- * com TTL, entao dois workers concorrentes nao publicam na mesma conta dentro
+ * com TTL, então dois workers concorrentes não publicam na mesma conta dentro
  * da janela.
  */
 export async function reserveSlot(accountId: string): Promise<number> {
@@ -42,12 +42,12 @@ export async function reserveSlot(accountId: string): Promise<number> {
   if (acquired === "OK") return 0;
 
   const ttl = await r.pttl(reservationKey(accountId));
-  // Soma um jitter para dois jobs que esperam o mesmo slot nao acordarem juntos.
+  // Soma um jitter para dois jobs que esperam o mesmo slot não acordarem juntos.
   const jitter = Math.floor(Math.random() * 20_000);
   return Math.max(5_000, (ttl > 0 ? ttl : windowMs) + jitter);
 }
 
-/** Libera a reserva quando a publicacao falhou e nao consumiu cota. */
+/** Libera a reserva quando a publicação falhou e não consumiu cota. */
 export async function releaseSlot(accountId: string): Promise<void> {
   await redis().del(reservationKey(accountId));
 }
