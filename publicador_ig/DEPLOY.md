@@ -72,6 +72,22 @@ em background + Postgres + Redis**. Render, Fly.io e Koyeb servem.
   `DATABASE_URL` e `REDIS_URL`.
 - **Mídia**: Cloudflare R2 ou o S3 do provedor.
 
+## Criar o seu usuário (o banco começa vazio)
+
+O painel não tem tela de cadastro, e em produção o banco sobe sem nenhum
+usuário. Crie o primeiro acesso rodando, na pasta do projeto na VPS:
+
+```bash
+docker compose run --rm --no-deps \
+  -e EMAIL="voce@exemplo.com" \
+  -e SENHA="uma-senha-forte" \
+  -e WORKSPACE="Minha Agência" \
+  web pnpm tsx scripts/criar-usuario.ts
+```
+
+Rodar de novo com o mesmo e-mail só troca a senha — não duplica nada. Depois é
+só entrar em `https://seu-dominio` com esse e-mail e senha.
+
 ## Antes de ir para o ar — checklist
 
 - [ ] `AUTH_SECRET` e `APP_ENCRYPTION_KEY` novos e **guardados**. Perder a chave

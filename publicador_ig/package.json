@@ -19,7 +19,8 @@
     "test:falhas": "tsx tests/failure-paths.ts",
     "seed:escala": "tsx scripts/seed-escala.ts",
     "setup:env": "bash scripts/setup-env.sh",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "criar-usuario": "tsx scripts/criar-usuario.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
