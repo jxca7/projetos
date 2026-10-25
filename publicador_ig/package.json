@@ -6,10 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "worker": "tsx src/worker/index.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "fixtures": "bash scripts/make-fixtures.sh",
+    "seed": "tsx scripts/seed.ts",
+    "status": "tsx scripts/status.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
+    "@aws-sdk/client-s3": "^3.1156.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "7.10.1",
     "bcryptjs": "^3.0.3",

@@ -220,6 +220,10 @@ model Post {
   thumbOffsetMs Int?
   audioName     String?
 
+  /// Link que a pessoa quer no Story. A API oficial nao coloca link
+  /// sticker, entao isso vira um Reminder para finalizar no app.
+  storyLink String?
+
   // Agendamento
   scheduledAt DateTime?
   publishNow  Boolean   @default(false)
@@ -280,10 +284,15 @@ model PostTarget {
   scheduledAt DateTime?
 
   // Estado da Graph API
-  containerId String?
-  igMediaId   String?
-  permalink   String?
-  publishedAt DateTime?
+  containerId        String?
+  /// Containers filhos do carrossel, criados antes do container pai.
+  childContainerIds  String[]  @default([])
+  /// Container da Meta expira em 24h; depois disso tem que recriar.
+  containerCreatedAt DateTime?
+  pollAttempts       Int       @default(0)
+  igMediaId          String?
+  permalink          String?
+  publishedAt        DateTime?
 
   attempts      Int       @default(0)
   lastError     String?

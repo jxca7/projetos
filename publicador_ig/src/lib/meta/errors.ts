@@ -113,12 +113,14 @@ export function classifyMetaError(
     return "auth";
   }
 
-  // Cota de publicacao de conteudo (25/50/100 posts por 24h, conforme a conta)
-  if (code === 9) return "quota";
-  if (msg.includes("publishing limit") || msg.includes("limit reached")) return "quota";
-
+  // Rate limit de CHAMADAS vem antes da cota de CONTEUDO: os dois dizem
+  // "limit reached" na mensagem, mas pedem esperas e avisos diferentes.
   if (code !== null && RATE_LIMIT_CODES.has(code)) return "rate_limited";
   if (httpStatus === 429) return "rate_limited";
+
+  // Cota de publicacao de conteudo (25/50/100 posts por 24h, conforme a conta)
+  if (code === 9) return "quota";
+  if (msg.includes("publishing limit")) return "quota";
 
   if (code !== null && PERMANENT_CONTAINER_CODES.has(code)) return "permanent";
   if (code !== null && TRANSIENT_CONTAINER_CODES.has(code)) return "retryable";

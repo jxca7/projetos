@@ -38,6 +38,44 @@ const TRANSIENT_FAILURE_RATE = Number(process.env.MOCK_FAILURE_RATE ?? "0.08");
 /** Quanto tempo o "processamento" do video leva. */
 const PROCESSING_MS = Number(process.env.MOCK_PROCESSING_MS ?? "4000");
 
+/**
+ * Forca um erro especifico, para exercitar os caminhos de falha em
+ * desenvolvimento e nos testes: auth | quota | rate_limit | permanent.
+ */
+const FORCE_ERROR = process.env.MOCK_FORCE_ERROR ?? "";
+
+function forcedError(): MetaApiError | null {
+  switch (FORCE_ERROR) {
+    case "auth":
+      return new MetaApiError({
+        message: "[mock] Error validating access token: Session has expired",
+        code: 190,
+        subcode: 463,
+        httpStatus: 400,
+      });
+    case "quota":
+      return new MetaApiError({
+        message: "[mock] The user has reached the publishing limit",
+        code: 9,
+        httpStatus: 400,
+      });
+    case "rate_limit":
+      return new MetaApiError({
+        message: "[mock] Application request limit reached",
+        code: 4,
+        httpStatus: 400,
+      });
+    case "permanent":
+      return new MetaApiError({
+        message: "[mock] The video format is not supported",
+        code: 2207026,
+        httpStatus: 400,
+      });
+    default:
+      return null;
+  }
+}
+
 function recentPublishes(igUserId: string): number[] {
   const cutoff = Date.now() - QUOTA_WINDOW_MS;
   const list = (publishedByAccount.get(igUserId) ?? []).filter((t) => t > cutoff);
@@ -70,10 +108,21 @@ export class MockDriver implements MetaDriver {
   }
 
   async getPublishingLimit(igUserId: string): Promise<PublishingLimit> {
+    if (FORCE_ERROR === "quota") {
+      return { quotaUsage: QUOTA_TOTAL, quotaTotal: QUOTA_TOTAL };
+    }
+    // Apenas erros que esse endpoint pode de fato devolver. Um erro de formato
+    // de video, por exemplo, so' aparece na criacao do container.
+    if (FORCE_ERROR === "auth" || FORCE_ERROR === "rate_limit") {
+      const forced = forcedError();
+      if (forced) throw forced;
+    }
     return { quotaUsage: recentPublishes(igUserId).length, quotaTotal: QUOTA_TOTAL };
   }
 
   async createContainer(input: CreateContainerInput): Promise<string> {
+    const forced = forcedError();
+    if (forced) throw forced;
     if (Math.random() < TRANSIENT_FAILURE_RATE) {
       throw new MetaApiError({
         message: "[mock] Falha temporaria ao buscar a midia na URL informada",
