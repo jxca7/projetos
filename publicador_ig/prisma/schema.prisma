@@ -1,0 +1,405 @@
+// Publicador IG - schema
+// Plataforma de publicacao multi-conta via API oficial da Meta.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Contas de usuario e workspaces (multi-tenant)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships  Membership[]
+  sessions     Session[]
+  authAccounts AuthAccount[]
+  createdPosts Post[]        @relation("PostAuthor")
+}
+
+// Login social / OAuth do proprio painel (Auth.js)
+model AuthAccount {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("America/Sao_Paulo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    Membership[]
+  socialAccounts SocialAccount[]
+  posts          Post[]
+  mediaAssets    MediaAsset[]
+  subscription   Subscription?
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model Membership {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role     @default(EDITOR)
+  createdAt   DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Contas do Instagram conectadas (uma por conta profissional autorizada)
+// ---------------------------------------------------------------------------
+
+enum AccountStatus {
+  ACTIVE
+  TOKEN_EXPIRED
+  REVOKED
+  DISABLED
+}
+
+model SocialAccount {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  // Identificadores da Meta
+  igUserId       String // IG User ID (conta profissional)
+  igUsername     String
+  igAccountType  String? // BUSINESS | MEDIA_CREATOR
+  pageId         String? // Facebook Page vinculada (fluxo Facebook Login)
+  pageName       String?
+  profilePicUrl  String?
+  followersCount Int?
+
+  // Token de pagina/usuario de longa duracao, cifrado em repouso (AES-256-GCM)
+  accessTokenEnc String
+  tokenExpiresAt DateTime?
+  scopes         String[]  @default([])
+
+  status        AccountStatus @default(ACTIVE)
+  statusMessage String?
+  lastSyncedAt  DateTime?
+
+  // Cache do limite de publicacao reportado pela Graph API
+  quotaTotal     Int?
+  quotaUsage     Int?
+  quotaCheckedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   PostTarget[]
+  reminders Reminder[]
+
+  @@unique([workspaceId, igUserId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Midia
+// ---------------------------------------------------------------------------
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+model MediaAsset {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  kind         MediaKind
+  storageKey   String // caminho no driver de storage
+  publicUrl    String // URL publica entregue a Meta (precisa ser acessivel por ela)
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  durationMs   Int?
+  checksum     String?
+  originalName String?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  postMedia PostMedia[]
+
+  @@index([workspaceId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Posts: um Post e o conteudo; um PostTarget e a publicacao numa conta
+// ---------------------------------------------------------------------------
+
+enum PostType {
+  REEL
+  IMAGE
+  CAROUSEL
+  STORY
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_APPROVAL
+  SCHEDULED
+  PUBLISHING
+  PARTIALLY_PUBLISHED
+  PUBLISHED
+  FAILED
+  CANCELED
+}
+
+model Post {
+  id          String  @id @default(cuid())
+  workspaceId String
+  authorId    String?
+
+  type    PostType
+  caption String   @default("")
+
+  // Opcoes de Reels
+  shareToFeed   Boolean @default(true)
+  coverUrl      String?
+  thumbOffsetMs Int?
+  audioName     String?
+
+  // Agendamento
+  scheduledAt DateTime?
+  publishNow  Boolean   @default(false)
+
+  // Distribui o horario entre as contas para nao disparar tudo no mesmo segundo
+  staggerSeconds Int @default(90)
+
+  status           PostStatus @default(DRAFT)
+  requiresApproval Boolean    @default(false)
+  approvedAt       DateTime?
+  approvedById     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User?        @relation("PostAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  media     PostMedia[]
+  targets   PostTarget[]
+
+  @@index([workspaceId, status, scheduledAt])
+}
+
+model PostMedia {
+  id       String @id @default(cuid())
+  postId   String
+  mediaId  String
+  position Int    @default(0)
+
+  post  Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  media MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@unique([postId, position])
+  @@index([mediaId])
+}
+
+enum TargetStatus {
+  PENDING
+  QUEUED
+  CREATING_CONTAINER
+  WAITING_CONTAINER
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  SKIPPED
+  CANCELED
+}
+
+model PostTarget {
+  id        String @id @default(cuid())
+  postId    String
+  accountId String
+
+  // Permite legenda propria por conta (marcas diferentes, texto diferente)
+  captionOverride String?
+
+  status      TargetStatus @default(PENDING)
+  scheduledAt DateTime?
+
+  // Estado da Graph API
+  containerId String?
+  igMediaId   String?
+  permalink   String?
+  publishedAt DateTime?
+
+  attempts      Int       @default(0)
+  lastError     String?
+  lastErrorCode String?
+  nextRetryAt   DateTime?
+
+  jobId String? // id do job no BullMQ, para cancelamento
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post    Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account SocialAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  metrics MetricSnapshot[]
+  events  TargetEvent[]
+
+  @@unique([postId, accountId])
+  @@index([status, scheduledAt])
+  @@index([accountId, publishedAt])
+}
+
+// Log de auditoria por target: cada transicao e chamada a API
+model TargetEvent {
+  id        String   @id @default(cuid())
+  targetId  String
+  level     String   @default("info") // info | warn | error
+  message   String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  target PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Metricas
+// ---------------------------------------------------------------------------
+
+model MetricSnapshot {
+  id       String @id @default(cuid())
+  targetId String
+
+  reach             Int?
+  views             Int?
+  likes             Int?
+  comments          Int?
+  shares            Int?
+  saved             Int?
+  totalInteractions Int?
+  raw               Json?
+
+  collectedAt DateTime @default(now())
+
+  target PostTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, collectedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Reminder: o que a API oficial NAO faz (link sticker em Story, por exemplo)
+// vira um aviso para a pessoa finalizar no app.
+// ---------------------------------------------------------------------------
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  DONE
+  CANCELED
+}
+
+model Reminder {
+  id        String @id @default(cuid())
+  accountId String
+
+  kind   String // STORY_LINK_STICKER | MANUAL_STEP
+  dueAt  DateTime
+  title  String
+  body   String?
+  link   String?
+  status ReminderStatus @default(PENDING)
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  account SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([status, dueAt])
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+  AGENCY
+}
+
+model Subscription {
+  id          String @id @default(cuid())
+  workspaceId String @unique
+
+  tier                   PlanTier  @default(FREE)
+  maxAccounts            Int       @default(2)
+  maxPostsPerMonth       Int       @default(30)
+  provider               String? // stripe | mercadopago
+  providerCustomerId     String?
+  providerSubscriptionId String?
+  currentPeriodEnd       DateTime?
+  canceledAt             DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
