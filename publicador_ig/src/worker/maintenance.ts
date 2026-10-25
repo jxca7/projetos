@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
-import { meta } from "@/lib/meta";
+import { driverForAccount } from "@/lib/meta";
 import type { MaintenanceJobData } from "@/lib/queue";
 
 const TOKEN_WARNING_DAYS = 7;
@@ -11,7 +11,8 @@ export async function processMaintenance(data: MaintenanceJobData): Promise<void
       const account = await prisma.socialAccount.findUnique({ where: { id: data.accountId } });
       if (!account || account.status !== "ACTIVE") return;
       try {
-        const limit = await meta().getPublishingLimit(
+        const driver = await driverForAccount(account.id);
+        const limit = await driver.getPublishingLimit(
           account.igUserId,
           decryptSecret(account.accessTokenEnc),
         );

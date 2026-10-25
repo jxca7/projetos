@@ -1,20 +1,35 @@
 import { env } from "../env";
 import { GraphDriver } from "./graph-driver";
 import { MockDriver } from "./mock-driver";
-import type { MetaDriver } from "./types";
+import type { MetaCredentials, MetaDriver } from "./types";
 
-let cached: MetaDriver | null = null;
+let mock: MockDriver | null = null;
 
 /**
- * Driver ativo. META_DRIVER=mock roda tudo localmente; META_DRIVER=graph fala
- * com a API oficial da Meta.
+ * Driver da Meta para um conjunto de credenciais.
+ *
+ * Em `mock` as credenciais são ignoradas. Em `graph`, cada chamada usa o app
+ * que emitiu aquele token — por isso o driver é construído por operação, e não
+ * mantido como singleton global.
  */
-export function meta(): MetaDriver {
-  if (cached) return cached;
-  cached = env().META_DRIVER === "graph" ? new GraphDriver() : new MockDriver();
-  return cached;
+export function meta(creds?: MetaCredentials | null): MetaDriver {
+  if (env().META_DRIVER === "mock") {
+    mock ??= new MockDriver();
+    return mock;
+  }
+  if (!creds) {
+    throw new Error("Driver graph exige credenciais do app do Meta.");
+  }
+  return new GraphDriver(creds);
 }
 
 export * from "./types";
 export { MetaApiError, backoffMs, classifyMetaError } from "./errors";
 export type { ErrorClass } from "./errors";
+export {
+  activeCredentials,
+  credentialsForAccount,
+  driverForAccount,
+  driverForWorkspace,
+  NoMetaAppError,
+} from "./credentials";

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { env } from "../env";
+import type { MetaCredentials } from "./types";
 
 /**
  * Permissões necessarias no app da Meta.
@@ -40,10 +41,9 @@ export function verifyState(state: string): string | null {
   return payload;
 }
 
-export function authorizeUrl(state: string): string {
-  const e = env();
-  const url = new URL(`https://www.facebook.com/${e.META_GRAPH_VERSION}/dialog/oauth`);
-  url.searchParams.set("client_id", e.META_APP_ID);
+export function authorizeUrl(state: string, creds: MetaCredentials): string {
+  const url = new URL(`https://www.facebook.com/${creds.graphVersion}/dialog/oauth`);
+  url.searchParams.set("client_id", creds.appId);
   url.searchParams.set("redirect_uri", redirectUri());
   url.searchParams.set("state", state);
   url.searchParams.set("scope", REQUIRED_SCOPES.join(","));

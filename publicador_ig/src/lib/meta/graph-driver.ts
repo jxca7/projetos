@@ -1,7 +1,7 @@
-import { env } from "../env";
-import { graph } from "./client";
+import { GraphClient } from "./client";
 import { MetaApiError } from "./errors";
 import type {
+  MetaCredentials,
   ContainerStatus,
   ContainerStatusCode,
   CreateContainerInput,
@@ -47,13 +47,17 @@ function readMetric(res: InsightsResponse, name: string): number | null {
 
 export class GraphDriver implements MetaDriver {
   readonly name = "graph" as const;
+  private readonly graph: GraphClient;
+
+  constructor(private readonly creds: MetaCredentials) {
+    this.graph = new GraphClient(creds);
+  }
 
   /** Troca o `code` devolvido pelo dialogo de OAuth por um access token. */
   async exchangeCodeForToken(code: string, redirectUri: string): Promise<string> {
-    const { META_APP_ID, META_APP_SECRET } = env();
-    const res = await graph.get<{ access_token: string }>("/oauth/access_token", "", {
-      client_id: META_APP_ID,
-      client_secret: META_APP_SECRET,
+    const res = await this.graph.get<{ access_token: string }>("/oauth/access_token", "", {
+      client_id: this.creds.appId,
+      client_secret: this.creds.appSecret,
       redirect_uri: redirectUri,
       code,
     });
@@ -69,14 +73,13 @@ export class GraphDriver implements MetaDriver {
    * permissão, mas guardamos a validade para avisar antes de quebrar.
    */
   async exchangeForLongLivedToken(shortLivedToken: string): Promise<LongLivedToken> {
-    const { META_APP_ID, META_APP_SECRET } = env();
-    const res = await graph.get<{ access_token: string; expires_in?: number }>(
+    const res = await this.graph.get<{ access_token: string; expires_in?: number }>(
       "/oauth/access_token",
       shortLivedToken,
       {
         grant_type: "fb_exchange_token",
-        client_id: META_APP_ID,
-        client_secret: META_APP_SECRET,
+        client_id: this.creds.appId,
+        client_secret: this.creds.appSecret,
         fb_exchange_token: shortLivedToken,
       },
     );
@@ -111,7 +114,7 @@ export class GraphDriver implements MetaDriver {
     let after: string | undefined;
 
     do {
-      const res = await graph.get<PagesResponse>("/me/accounts", userAccessToken, {
+      const res = await this.graph.get<PagesResponse>("/me/accounts", userAccessToken, {
         fields:
           "id,name,access_token,instagram_business_account{id,username,profile_picture_url,followers_count,account_type}",
         limit: 100,
@@ -149,7 +152,7 @@ export class GraphDriver implements MetaDriver {
     interface LimitResponse {
       data?: Array<{ quota_usage?: number; config?: { quota_total?: number; quota_duration?: number } }>;
     }
-    const res = await graph.get<LimitResponse>(
+    const res = await this.graph.get<LimitResponse>(
       `/${igUserId}/content_publishing_limit`,
       accessToken,
       { fields: "config,quota_usage" },
@@ -207,7 +210,7 @@ export class GraphDriver implements MetaDriver {
       }
     }
 
-    const res = await graph.post<{ id: string }>(`/${input.igUserId}/media`, input.accessToken, params);
+    const res = await this.graph.post<{ id: string }>(`/${input.igUserId}/media`, input.accessToken, params);
     if (!res?.id) {
       throw new MetaApiError({ message: "Graph API não retornou id do container", httpStatus: 502 });
     }
@@ -215,7 +218,7 @@ export class GraphDriver implements MetaDriver {
   }
 
   async getContainerStatus(containerId: string, accessToken: string): Promise<ContainerStatus> {
-    const res = await graph.get<{ status_code?: string; status?: string }>(
+    const res = await this.graph.get<{ status_code?: string; status?: string }>(
       `/${containerId}`,
       accessToken,
       { fields: "status_code,status" },
@@ -230,7 +233,7 @@ export class GraphDriver implements MetaDriver {
   }
 
   async publishContainer(igUserId: string, containerId: string, accessToken: string): Promise<string> {
-    const res = await graph.post<{ id: string }>(`/${igUserId}/media_publish`, accessToken, {
+    const res = await this.graph.post<{ id: string }>(`/${igUserId}/media_publish`, accessToken, {
       creation_id: containerId,
     });
     if (!res?.id) {
@@ -241,7 +244,7 @@ export class GraphDriver implements MetaDriver {
 
   async getPermalink(igMediaId: string, accessToken: string): Promise<string | null> {
     try {
-      const res = await graph.get<{ permalink?: string }>(`/${igMediaId}`, accessToken, {
+      const res = await this.graph.get<{ permalink?: string }>(`/${igMediaId}`, accessToken, {
         fields: "permalink",
       });
       return res.permalink ?? null;
@@ -259,7 +262,7 @@ export class GraphDriver implements MetaDriver {
     const wanted = METRICS_BY_TYPE[type] ?? FALLBACK_METRICS;
 
     const fetchMetrics = async (metrics: string[]) =>
-      graph.get<InsightsResponse>(`/${igMediaId}/insights`, accessToken, {
+      this.graph.get<InsightsResponse>(`/${igMediaId}/insights`, accessToken, {
         metric: metrics.join(","),
       });
 

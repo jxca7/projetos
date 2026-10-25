@@ -28,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/publicar", label: "Publicar", short: "Publicar", group: "Publicar" },
     { href: "/fila", label: "Fila", short: "Fila", group: "Publicar" },
     { href: "/contas", label: "Contas", short: "Contas", group: "Contas" },
+    { href: "/apps-meta", label: "Apps Meta", short: "Apps", group: "Contas" },
     {
       href: "/contas-off",
       label: "Contas off",

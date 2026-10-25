@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
 import { maintenanceQueue } from "@/lib/queue";
@@ -404,4 +405,158 @@ export async function retryAllFailedAction() {
   revalidatePath("/saude");
   revalidatePath("/fila");
   return { ok: true as const, retried: total };
+}
+
+// ---------------------------------------------------------------------------
+// Apps do Meta
+// ---------------------------------------------------------------------------
+
+const metaAppSchema = z.object({
+  name: z.string().trim().min(1, "Dê um nome ao app.").max(60),
+  appId: z
+    .string()
+    .trim()
+    .regex(/^\d{6,25}$/, "O App ID da Meta é só números."),
+  appSecret: z
+    .string()
+    .trim()
+    .regex(/^[a-fA-F0-9]{32}$/, "O App Secret tem 32 caracteres hexadecimais."),
+  graphVersion: z
+    .string()
+    .trim()
+    .regex(/^v\d+\.\d+$/, "A versão da Graph API tem o formato v23.0.")
+    .default("v23.0"),
+  notes: z.string().trim().max(300).optional(),
+});
+
+export type MetaAppInput = z.input<typeof metaAppSchema>;
+
+export async function saveMetaAppAction(input: MetaAppInput, metaAppDbId?: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const parsed = metaAppSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues[0].message };
+  }
+  const data = parsed.data;
+
+  const clash = await prisma.metaApp.findFirst({
+    where: {
+      workspaceId: ctx.workspaceId,
+      appId: data.appId,
+      ...(metaAppDbId ? { id: { not: metaAppDbId } } : {}),
+    },
+  });
+  if (clash) {
+    return { ok: false as const, error: `O App ID ${data.appId} já está cadastrado.` };
+  }
+
+  if (metaAppDbId) {
+    const existing = await prisma.metaApp.findFirst({
+      where: { id: metaAppDbId, workspaceId: ctx.workspaceId },
+    });
+    if (!existing) return { ok: false as const, error: "App não encontrado." };
+
+    await prisma.metaApp.update({
+      where: { id: metaAppDbId },
+      data: {
+        name: data.name,
+        appId: data.appId,
+        appSecretEnc: encryptSecret(data.appSecret),
+        graphVersion: data.graphVersion,
+        notes: data.notes || null,
+      },
+    });
+    revalidatePath("/apps-meta");
+    return { ok: true as const, metaAppId: metaAppDbId };
+  }
+
+  const total = await prisma.metaApp.count({ where: { workspaceId: ctx.workspaceId } });
+  const created = await prisma.metaApp.create({
+    data: {
+      workspaceId: ctx.workspaceId,
+      name: data.name,
+      appId: data.appId,
+      appSecretEnc: encryptSecret(data.appSecret),
+      graphVersion: data.graphVersion,
+      notes: data.notes || null,
+      // O primeiro app vira o ativo: sem isso nada conecta.
+      isActive: total === 0,
+    },
+  });
+
+  revalidatePath("/apps-meta");
+  revalidatePath("/contas");
+  return { ok: true as const, metaAppId: created.id };
+}
+
+export async function activateMetaAppAction(metaAppDbId: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const app = await prisma.metaApp.findFirst({
+    where: { id: metaAppDbId, workspaceId: ctx.workspaceId },
+  });
+  if (!app) return { ok: false as const, error: "App não encontrado." };
+
+  // Só um ativo por workspace: é ele que assina as próximas conexões.
+  await prisma.$transaction([
+    prisma.metaApp.updateMany({
+      where: { workspaceId: ctx.workspaceId },
+      data: { isActive: false },
+    }),
+    prisma.metaApp.update({ where: { id: metaAppDbId }, data: { isActive: true } }),
+  ]);
+
+  revalidatePath("/apps-meta");
+  return { ok: true as const };
+}
+
+/**
+ * Apaga o cadastro do app.
+ *
+ * As contas conectadas por ele continuam no banco, mas param de publicar: o
+ * token delas só é aceito pela Meta com o secret desse app. Por isso o aviso
+ * é explícito e as contas afetadas são marcadas.
+ */
+export async function deleteMetaAppAction(metaAppDbId: string) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const app = await prisma.metaApp.findFirst({
+    where: { id: metaAppDbId, workspaceId: ctx.workspaceId },
+    include: { _count: { select: { accounts: true } } },
+  });
+  if (!app) return { ok: false as const, error: "App não encontrado." };
+
+  const afetadas = app._count.accounts;
+
+  await prisma.$transaction(async (tx) => {
+    if (afetadas > 0) {
+      await tx.socialAccount.updateMany({
+        where: { metaAppId: metaAppDbId },
+        data: {
+          status: "TOKEN_EXPIRED",
+          statusMessage:
+            "O app do Meta que conectou esta conta foi removido. Reconecte pelo app ativo.",
+        },
+      });
+    }
+    await tx.metaApp.delete({ where: { id: metaAppDbId } });
+
+    // Se o ativo saiu, promove outro para o painel não ficar sem app.
+    const restantes = await tx.metaApp.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      orderBy: { createdAt: "asc" },
+    });
+    if (restantes.length > 0 && !restantes.some((a) => a.isActive)) {
+      await tx.metaApp.update({ where: { id: restantes[0].id }, data: { isActive: true } });
+    }
+  });
+
+  revalidatePath("/apps-meta");
+  revalidatePath("/contas");
+  revalidatePath("/contas-off");
+  return { ok: true as const, afetadas };
 }

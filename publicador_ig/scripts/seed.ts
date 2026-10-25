@@ -97,7 +97,8 @@ async function main() {
   console.log(`workspace: ${workspace.name} (${workspace.slug})`);
 
   // Contas: no driver mock vem uma lista fixa; no driver real, viriam do OAuth.
-  const discovered = await meta().listInstagramAccounts("seed-token");
+  // Driver mock: ignora credenciais.
+  const discovered = await meta(null).listInstagramAccounts("seed-token");
   for (const acc of discovered) {
     await prisma.socialAccount.upsert({
       where: { workspaceId_igUserId: { workspaceId: workspace.id, igUserId: acc.igUserId } },

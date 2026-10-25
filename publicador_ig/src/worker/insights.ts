@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
-import { meta, MetaApiError } from "@/lib/meta";
+import { MetaApiError, driverForAccount } from "@/lib/meta";
 import type { PostTypeName } from "@/lib/meta/types";
 import type { InsightsJobData } from "@/lib/queue";
 
@@ -22,7 +22,8 @@ export async function processInsights(data: InsightsJobData): Promise<void> {
   }
 
   try {
-    const metrics = await meta().getInsights(
+    const driver = await driverForAccount(target.accountId);
+    const metrics = await driver.getInsights(
       target.igMediaId,
       accessToken,
       target.post.type as PostTypeName,

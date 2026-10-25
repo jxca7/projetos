@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
-import { meta, MetaApiError, backoffMs, type ErrorClass } from "@/lib/meta";
+import {
+  MetaApiError,
+  NoMetaAppError,
+  backoffMs,
+  driverForAccount,
+  type ErrorClass,
+} from "@/lib/meta";
 import type { CreateContainerInput, PostTypeName } from "@/lib/meta/types";
 import { enqueueInsights, enqueuePublish } from "@/lib/queue";
 import { markPublished, releaseSlot, reserveSlot } from "@/lib/publishing/pacing";
@@ -99,7 +105,17 @@ export async function processPublishTarget(targetId: string): Promise<Outcome> {
     return { kind: "failed", reason: "token ilegível" };
   }
 
-  const driver = meta();
+  // Cada conta fala pelo app que emitiu o token dela.
+  let driver;
+  try {
+    driver = await driverForAccount(account.id);
+  } catch (e) {
+    if (e instanceof NoMetaAppError) {
+      await failTarget(targetId, e.message, "no_meta_app");
+      return { kind: "failed", reason: e.message };
+    }
+    throw e;
+  }
 
   try {
     // ---- 1. Cota de 24h da conta ----------------------------------------

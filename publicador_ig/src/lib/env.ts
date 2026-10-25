@@ -41,8 +41,8 @@ export function env(): Env {
   }
   cached = parsed.data;
 
-  if (cached.META_DRIVER === "graph" && (!cached.META_APP_ID || !cached.META_APP_SECRET)) {
-    throw new Error("META_DRIVER=graph exige META_APP_ID e META_APP_SECRET");
-  }
+  // META_APP_ID/SECRET no .env são opcionais: servem a quem roda com um app
+  // só. Com vários apps as credenciais vêm do banco, por workspace, e a
+  // validação acontece na hora de conectar.
   return cached;
 }

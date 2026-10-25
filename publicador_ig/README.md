@@ -67,7 +67,7 @@ inteiro antes de ter o app aprovado.
 | `APP_URL` | URL pública do painel; compõe o redirect do OAuth |
 | `AUTH_SECRET` | Sessão do painel (`openssl rand -base64 32`) |
 | `APP_ENCRYPTION_KEY` | 32 bytes em hex (`openssl rand -hex 32`). Cifra os tokens da Meta em repouso |
-| `META_APP_ID` / `META_APP_SECRET` | App da Meta |
+| `META_APP_ID` / `META_APP_SECRET` | App da Meta. Opcionais: só servem de fallback para quem usa um app único; com vários, as credenciais vêm da tela Apps Meta |
 | `META_GRAPH_VERSION` | Versão da Graph API (ex.: `v23.0`). Suba junto com os deprecations da Meta |
 | `META_DRIVER` | `mock` (simulado) ou `graph` (API real) |
 | `STORAGE_DRIVER` | `local` ou `s3` |
@@ -80,18 +80,42 @@ inteiro antes de ter o app aprovado.
 
 ## O que a Meta exige antes de publicar de verdade
 
-1. **Conta profissional**: cada conta do Instagram precisa ser Business ou Creator e estar
-   vinculada a uma Página do Facebook. Conta pessoal não publica por API.
-2. **App da Meta** em developers.facebook.com com o produto Instagram Graph API.
-3. **Permissões** (todas passam por App Review):
-   `instagram_basic`, `instagram_content_publish`, `instagram_manage_insights`,
-   `pages_show_list`, `pages_read_engagement`, `business_management`.
-4. **Business Verification** da empresa no Business Manager.
-5. **Redirect URI** do OAuth cadastrada: `{APP_URL}/api/meta/callback`.
+**Você não precisa de App Review para publicar nas suas próprias contas.** Em
+**modo de desenvolvimento**, o app publica normalmente nas contas que tiverem um
+papel nele. App Review e Verificação do Negócio só passam a ser obrigatórios
+quando *outras pessoas* forem conectar as contas delas no seu produto
+(Advanced Access).
 
-Sem `instagram_content_publish` aprovada, o app só lê dados. Com o app em modo de
-desenvolvimento, dá para publicar nas contas cujos usuários tenham papel no app (admin,
-desenvolvedor ou testador) — suficiente para validar a integração antes do review.
+Para cada app:
+
+1. **Conta profissional**: cada conta do Instagram precisa ser Business ou Creator
+   e estar vinculada a uma Página do Facebook que você administra.
+2. **App** em developers.facebook.com com o produto Instagram e o Facebook Login.
+3. **Testadores do Instagram**: em Funções → Testadores do Instagram, adicione o @
+   de cada conta. Cada conta precisa **aceitar o convite** no app do Instagram, em
+   Configurações → Apps e sites → Convites de testador.
+4. **Redirect URI** cadastrada em Facebook Login → Configurações:
+   `{APP_URL}/api/meta/callback`.
+5. **Permissões**: `instagram_basic`, `instagram_content_publish`,
+   `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`,
+   `business_management`.
+
+### Por que a plataforma suporta vários apps
+
+Um app do Meta aceita no máximo **50 testers**. Como em modo de desenvolvimento só
+quem tem papel no app consegue autorizar, esse número é o teto de contas por app —
+com 93 contas, não cabe em um só. Cada app também tem o próprio balde de rate
+limit, o que distribui o risco de estourar o limite de chamadas.
+
+Os apps são cadastrados na tela **Apps Meta**, com o secret cifrado em repouso, e
+um deles fica marcado como ativo (é o que assina as próximas conexões). **Cada
+conta guarda qual app a conectou**: o `appsecret_proof` é um HMAC do secret
+daquele app, então assinar com o secret de outro faz a Meta recusar todas as
+chamadas daquela conta. Por isso apagar um app marca as contas dele para
+reconectar, em vez de deixá-las falhando com um erro de token sem causa aparente.
+
+Quem roda com um app só pode continuar usando `META_APP_ID` e `META_APP_SECRET`
+no `.env`: eles são o fallback quando não há nenhum app cadastrado.
 
 ## Arquitetura da publicação
 

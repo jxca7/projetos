@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireContext, canManageAccounts } from "@/lib/session";
 import { authorizeUrl, signState } from "@/lib/meta/oauth";
+import { activeCredentials, NoMetaAppError } from "@/lib/meta";
 import { env } from "@/lib/env";
 
 /**
@@ -26,5 +27,17 @@ export async function GET() {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.redirect(authorizeUrl(state));
+  try {
+    const creds = await activeCredentials(ctx.workspaceId);
+    return NextResponse.redirect(authorizeUrl(state, creds));
+  } catch (e) {
+    // Sem app cadastrado não há para onde mandar a pessoa: avisa na tela
+    // certa em vez de redirecionar para uma URL quebrada da Meta.
+    const url = new URL("/apps-meta", env().APP_URL);
+    url.searchParams.set(
+      "erro",
+      e instanceof NoMetaAppError ? e.message : "Não foi possível montar a conexão com a Meta.",
+    );
+    return NextResponse.redirect(url);
+  }
 }

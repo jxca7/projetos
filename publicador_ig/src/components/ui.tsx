@@ -127,12 +127,17 @@ export function Field({
   hint?: string;
   children: React.ReactNode;
 }) {
+  // A dica fica FORA do <label>: dentro dela, o nome acessível do campo vira
+  // "Nome Só para você identificar. Ex.: Clientes A", e é isso que o leitor de
+  // tela anuncia. O input continua dentro do label, que é o que associa os dois.
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium">{label}</span>
-      {children}
+    <div className="block">
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium">{label}</span>
+        {children}
+      </label>
       {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
-    </label>
+    </div>
   );
 }
 

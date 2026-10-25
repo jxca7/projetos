@@ -76,6 +76,7 @@ model Workspace {
   updatedAt DateTime @updatedAt
 
   memberships    Membership[]
+  metaApps       MetaApp[]
   folders        AccountFolder[]
   socialAccounts SocialAccount[]
   posts          Post[]
@@ -120,6 +121,7 @@ model SocialAccount {
   workspaceId String
 
   folderId       String?
+  metaAppId      String?
   // Identificadores da Meta
   igUserId       String // IG User ID (conta profissional)
   igUsername     String
@@ -148,6 +150,7 @@ model SocialAccount {
 
   workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   folder    AccountFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  metaApp   MetaApp?       @relation(fields: [metaAppId], references: [id], onDelete: SetNull)
   targets   PostTarget[]
   reminders Reminder[]
 
@@ -432,4 +435,34 @@ model AccountFolder {
 
   @@unique([workspaceId, name])
   @@index([workspaceId, position])
+}
+
+/// App do Meta for Developers usado para falar com a Graph API.
+///
+/// Existe mais de um porque cada app aguenta no maximo 50 testers, e em modo
+/// de desenvolvimento so' quem tem papel no app consegue autorizar. Quem
+/// administra dezenas de contas precisa distribui-las entre apps. Cada app
+/// tambem tem o proprio balde de rate limit.
+model MetaApp {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  name         String
+  appId        String
+  /// Cifrado em repouso (AES-256-GCM), como os tokens.
+  appSecretEnc String
+  graphVersion String @default("v23.0")
+
+  /// App usado nas novas conexoes. Apenas um por workspace.
+  isActive Boolean @default(false)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  accounts  SocialAccount[]
+
+  @@unique([workspaceId, appId])
+  @@index([workspaceId, isActive])
 }

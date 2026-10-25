@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
-import { meta, MetaApiError } from "@/lib/meta";
+import { meta, MetaApiError, NoMetaAppError, activeCredentials } from "@/lib/meta";
+import { env as appEnv } from "@/lib/env";
 import { redirectUri, verifyState, REQUIRED_SCOPES } from "@/lib/meta/oauth";
 import { requireContext, canManageAccounts } from "@/lib/session";
 import { env } from "@/lib/env";
@@ -44,7 +45,12 @@ export async function GET(req: NextRequest) {
   const maxAccounts = subscription?.maxAccounts ?? 2;
 
   try {
-    const driver = meta();
+    // Em mock não há app cadastrado nem necessidade de assinar.
+    const creds =
+      appEnv().META_DRIVER === "mock"
+        ? { metaAppId: null, appId: "", appSecret: "", graphVersion: "", source: "env" as const }
+        : await activeCredentials(ctx.workspaceId);
+    const driver = meta(appEnv().META_DRIVER === "mock" ? null : creds);
     const shortLived = await driver.exchangeCodeForToken(code, redirectUri());
     const longLived = await driver.exchangeForLongLivedToken(shortLived);
     const discovered = await driver.listInstagramAccounts(longLived.accessToken);
@@ -86,6 +92,7 @@ export async function GET(req: NextRequest) {
           scopes: [...REQUIRED_SCOPES],
           status: "ACTIVE",
           statusMessage: null,
+          metaAppId: creds.metaAppId,
           lastSyncedAt: new Date(),
         },
         create: {
@@ -101,6 +108,7 @@ export async function GET(req: NextRequest) {
           tokenExpiresAt: longLived.expiresAt,
           scopes: [...REQUIRED_SCOPES],
           status: "ACTIVE",
+          metaAppId: creds.metaAppId,
           lastSyncedAt: new Date(),
         },
       });
@@ -114,6 +122,7 @@ export async function GET(req: NextRequest) {
     if (skipped > 0) parts.push(`${skipped} ignorada(s) pelo limite do plano (${maxAccounts})`);
     return back(parts.join(", ") + ".");
   } catch (e) {
+    if (e instanceof NoMetaAppError) return back(e.message, "erro");
     const message =
       e instanceof MetaApiError
         ? `Meta recusou a conexão: ${e.message}${e.code ? ` (code ${e.code})` : ""}`

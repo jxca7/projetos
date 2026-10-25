@@ -1,5 +1,22 @@
 export type PostTypeName = "REEL" | "IMAGE" | "CAROUSEL" | "STORY";
 
+/**
+ * Credenciais do app do Meta usadas numa chamada.
+ *
+ * Não vêm do ambiente porque um workspace pode ter vários apps: cada app
+ * aguenta no máximo 50 testers, e em modo de desenvolvimento só quem tem
+ * papel no app consegue autorizar. O token de uma conta só funciona com o
+ * secret do app que o emitiu — o appsecret_proof é um HMAC desse secret.
+ */
+export interface MetaCredentials {
+  /** Id do registro MetaApp, quando veio do banco. */
+  metaAppId: string | null;
+  appId: string;
+  appSecret: string;
+  graphVersion: string;
+  source: "db" | "env";
+}
+
 export interface DiscoveredAccount {
   igUserId: string;
   igUsername: string;
