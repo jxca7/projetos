@@ -22,7 +22,7 @@ async function baseAtual() {
   } catch {}
   return BASE;
 }
-const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'capturar_site.js', 'atualizar.js', 'package.json', 'LEIA-ME.md',
+const ARQUIVOS = ['comum.js', 'perfil.js', 'conectar.js', 'testar.js', 'tudo.js', 'menu.js', 'preparar.js', 'capturar_site.js', 'testadores.js', 'atualizar.js', 'package.json', 'LEIA-ME.md',
   'story/postar_story.py', 'story/requirements.txt', 'story/rodar_story.bat',
   // menu.bat antes do rodar.bat: o rodar.bat chama o menu.bat logo depois desta atualização
   'menu.bat', 'rodar.bat'];

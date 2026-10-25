@@ -16,6 +16,11 @@ const ARQUIVOS = {
   'bio.txt': '',
   'site.txt': '',
   'pasta.txt': '',
+  'app_url.txt': '',
+  'testadores.txt':
+    '# Um @usuario do Instagram por linha para adicionar como Testador do Instagram\r\n' +
+    '# exemplo:\r\n' +
+    '# fulano\r\n',
   'site_login.txt': 'seu@email.com:suasenha\r\n',
   'contas.txt':
     '# Senha de cada conta do Instagram: uma por linha, no formato  usuario:senha\r\n' +
