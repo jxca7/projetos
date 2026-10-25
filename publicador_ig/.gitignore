@@ -17,3 +17,7 @@ next-env.d.ts
 /coverage
 tsconfig.tsbuildinfo
 .env.docker
+.sessao-meta/
+ferramentas/convidar-testers/contas.txt
+ferramentas/convidar-testers/node_modules/
+ferramentas/convidar-testers/package*.json

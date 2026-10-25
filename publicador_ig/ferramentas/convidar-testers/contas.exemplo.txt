@@ -1,0 +1,6 @@
+# Um nome de usuário por linha (sem o @).
+# Linhas começando com # são ignoradas.
+# Renomeie este arquivo para contas.txt e ponha os seus.
+marca.oficial
+loja.centro
+loja.shopping
