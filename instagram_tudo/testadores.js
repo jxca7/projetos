@@ -66,6 +66,14 @@ async function clicarTexto(page, texto, timeout = 12000, dentroModal = false) {
   return false;
 }
 
+async function limparCampo(page, campo) {
+  await campo.click().catch(() => {});
+  await page.keyboard.down('Control').catch(() => {});
+  await page.keyboard.press('KeyA').catch(() => {});
+  await page.keyboard.up('Control').catch(() => {});
+  await page.keyboard.press('Backspace').catch(() => {});
+}
+
 async function digitarConta(page, usuario) {
   const campo =
     (await page.$('[role="dialog"] input[role="combobox"]')) ||
@@ -74,35 +82,35 @@ async function digitarConta(page, usuario) {
   if (!campo) throw new Error('não achei a caixa de busca das contas');
   await cliqueHumano(page, campo);
   await digitarHumano(campo, usuario);
-  await pausaHumana(1800, 3000); // espera o dropdown de resultados
 
-  // tenta clicar numa opção do dropdown que contenha o @usuário
-  const clicou = await page
-    .evaluate((usuario) => {
-      const u = usuario.toLowerCase();
-      const ops = [...document.querySelectorAll('[role="option"], [role="listbox"] [role="option"], ul[role="listbox"] li')];
-      const alvo = ops.find((o) => (o.innerText || '').toLowerCase().includes(u));
-      if (alvo) {
-        alvo.click();
-        return true;
-      }
-      return false;
-    }, usuario)
-    .catch(() => false);
-  if (!clicou) {
-    // às vezes vira "chip" só de teclar Enter
-    await page.keyboard.press('Enter').catch(() => {});
+  // Espera aparecer um RESULTADO COM FOTO (avatar) no dropdown — só esses são contas válidas.
+  // Conta sem caricatura não existe e, se virar chip, quebra o "Adicionar" inteiro.
+  const fim = Date.now() + 7000;
+  let clicou = false;
+  while (Date.now() < fim && !clicou) {
+    clicou = await page
+      .evaluate((usuario) => {
+        const u = usuario.toLowerCase();
+        const ops = [...document.querySelectorAll('[role="option"]')];
+        const alvo = ops.find((o) => (o.innerText || '').toLowerCase().includes(u) && o.querySelector('img'));
+        if (alvo) {
+          alvo.click();
+          return true;
+        }
+        return false;
+      }, usuario)
+      .catch(() => false);
+    if (!clicou) await esperar(400);
   }
-  await pausaHumana(900, 1600);
 
-  // confere se virou chip (o @usuário aparece dentro do modal)
-  const virouChip = await page
-    .evaluate((usuario) => {
-      const dlg = document.querySelector('[role="dialog"]') || document;
-      return (dlg.innerText || '').toLowerCase().includes(usuario.toLowerCase());
-    }, usuario)
-    .catch(() => false);
-  return virouChip;
+  if (!clicou) {
+    // não achou a conta (sem caricatura): limpa o que foi digitado para NÃO virar chip inválido
+    await limparCampo(page, campo);
+    await pausaHumana(400, 800);
+    return false;
+  }
+  await pausaHumana(700, 1300);
+  return true;
 }
 
 async function rodar() {
@@ -161,12 +169,15 @@ async function rodar() {
     }
     await salvarPrint(page, 'testador_03_antes_adicionar');
 
-    if (!(await clicarTexto(page, 'Adicionar', 10000, true))) {
+    if (!ok.length) {
+      console.log('Nenhuma conta válida (com caricatura) foi encontrada — não vou clicar em Adicionar.');
+    } else if (!(await clicarTexto(page, 'Adicionar', 10000, true))) {
       await salvarPrint(page, 'testador_erro_botao_adicionar');
       throw new Error('não achei o botão "Adicionar" do modal (veja o print)');
+    } else {
+      await pausaHumana(2000, 3500);
+      await salvarPrint(page, 'testador_04_fim');
     }
-    await pausaHumana(2000, 3500);
-    await salvarPrint(page, 'testador_04_fim');
 
     console.log('\n===== RESUMO (testadores) =====');
     console.log(`Adicionados (chip apareceu): ${ok.length} — ${ok.map((u) => '@' + u).join(', ')}`);
