@@ -2,10 +2,12 @@ import "dotenv/config";
 import { Worker } from "bullmq";
 import { redis } from "@/lib/redis";
 import {
+  QUEUE_IMPORT,
   QUEUE_INSIGHTS,
   QUEUE_MAINTENANCE,
   QUEUE_PUBLISH,
   maintenanceQueue,
+  type ImportJobData,
   type InsightsJobData,
   type MaintenanceJobData,
   type PublishJobData,
@@ -13,6 +15,7 @@ import {
 import { applyOutcome, processPublishTarget } from "./publish";
 import { processInsights } from "./insights";
 import { processMaintenance } from "./maintenance";
+import { processImport } from "./import";
 import { env } from "@/lib/env";
 
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? "8");
@@ -54,6 +57,14 @@ async function main() {
     { connection: redis(), concurrency: 2 },
   );
 
+  // Download de Reels: poucos de cada vez e com limite por minuto, para ser
+  // gentil com o Instagram e não chamar atenção na conta do cookie.
+  const importWorker = new Worker<ImportJobData>(
+    QUEUE_IMPORT,
+    async (job) => processImport(job.data),
+    { connection: redis(), concurrency: 2, limiter: { max: 6, duration: 60_000 } },
+  );
+
   publishWorker.on("completed", (job, result) => {
     const r = result as { kind: string; reason?: string; delayMs?: number } | undefined;
     if (r?.kind === "retry") {
@@ -69,6 +80,12 @@ async function main() {
   });
   insightsWorker.on("failed", (job, err) => {
     log(`job de métricas ${job?.id} falhou: ${err.message}`);
+  });
+  importWorker.on("completed", (job) => {
+    log(`importação ${job.data.importId}: concluída`);
+  });
+  importWorker.on("failed", (job, err) => {
+    log(`importação ${job?.data.importId} falhou: ${err.message}`);
   });
 
   // Rotinas periodicas.
@@ -95,6 +112,7 @@ async function main() {
       publishWorker.close(),
       insightsWorker.close(),
       maintenanceWorker.close(),
+      importWorker.close(),
     ]);
     process.exit(0);
   };

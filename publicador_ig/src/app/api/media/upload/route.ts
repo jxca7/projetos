@@ -1,23 +1,12 @@
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { requireContext, canEdit } from "@/lib/session";
-import { storage, buildKey } from "@/lib/storage";
-import { probeMedia } from "@/lib/media/probe";
-import { validateMedia, hasBlockingIssue, type ValidationIssue } from "@/lib/media/validate";
-import { extractPoster } from "@/lib/media/thumbnail";
-
-const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GB, o teto da Meta para Reels
-
-const ALLOWED = new Map<string, "IMAGE" | "VIDEO">([
-  ["image/jpeg", "IMAGE"],
-  ["image/png", "IMAGE"],
-  ["video/mp4", "VIDEO"],
-  ["video/quicktime", "VIDEO"],
-]);
+import {
+  ingestMedia,
+  MediaRejectedError,
+  MediaTooLargeError,
+  UnsupportedMediaError,
+  type UsedFor,
+} from "@/lib/media/ingest";
 
 export async function POST(req: NextRequest) {
   const ctx = await requireContext();
@@ -35,112 +24,39 @@ export async function POST(req: NextRequest) {
   if (!["REEL", "IMAGE", "CAROUSEL", "STORY", "LIBRARY"].includes(usedForRaw)) {
     return NextResponse.json({ error: "Tipo de post inválido." }, { status: 400 });
   }
-  const usedFor = usedForRaw as "REEL" | "IMAGE" | "CAROUSEL" | "STORY" | "LIBRARY";
-
-  const kind = ALLOWED.get(file.type);
-  if (!kind) {
-    return NextResponse.json(
-      { error: `Tipo ${file.type || "desconhecido"} não aceito. Use JPEG, PNG, MP4 ou MOV.` },
-      { status: 415 },
-    );
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return NextResponse.json({ error: "Arquivo acima de 1 GB." }, { status: 413 });
-  }
 
   const body = Buffer.from(await file.arrayBuffer());
-  const checksum = crypto.createHash("sha256").update(body).digest("hex");
 
-  // Dedup: arquivo idêntico já na biblioteca deste workspace volta o existente,
-  // em vez de guardar de novo. É o que evita duplicata na origem.
-  const existente = await prisma.mediaAsset.findFirst({
-    where: { workspaceId: ctx.workspaceId, checksum },
-  });
-  if (existente) {
-    return NextResponse.json({
-      id: existente.id,
-      kind: existente.kind,
-      publicUrl: existente.publicUrl,
-      thumbnailUrl: existente.thumbnailUrl,
-      width: existente.width,
-      height: existente.height,
-      durationMs: existente.durationMs,
-      sizeBytes: existente.sizeBytes,
-      duplicate: true,
-      warnings: [] as ValidationIssue[],
-    });
-  }
-
-  // ffprobe le de arquivo, não de buffer: grava num temporario para inspecionar.
-  const tmp = path.join(os.tmpdir(), `up-${crypto.randomBytes(8).toString("hex")}${path.extname(file.name)}`);
-  let issues: ValidationIssue[] = [];
-  let probe;
-  let posterBuf: Buffer | null = null;
   try {
-    await fs.writeFile(tmp, body);
-    probe = await probeMedia(tmp);
-    issues = validateMedia({ kind, mimeType: file.type, sizeBytes: body.byteLength, probe, usedFor });
-    if (!hasBlockingIssue(issues) && kind === "VIDEO") {
-      posterBuf = await extractPoster(tmp);
-    }
-  } finally {
-    await fs.rm(tmp, { force: true });
-  }
-
-  if (hasBlockingIssue(issues)) {
-    return NextResponse.json(
-      { error: "Mídia reprovada nas regras do Instagram.", issues },
-      { status: 422 },
-    );
-  }
-
-  const stored = await storage().put(
-    buildKey(ctx.workspaceId, file.name || "mídia"),
-    body,
-    file.type,
-  );
-
-  // Guarda a capa do vídeo, quando foi possível extrair.
-  let thumbnailKey: string | null = null;
-  let thumbnailUrl: string | null = null;
-  if (posterBuf) {
-    const poster = await storage().put(
-      buildKey(ctx.workspaceId, "poster.jpg"),
-      posterBuf,
-      "image/jpeg",
-    );
-    thumbnailKey = poster.storageKey;
-    thumbnailUrl = poster.publicUrl;
-  }
-
-  const asset = await prisma.mediaAsset.create({
-    data: {
+    const { asset, duplicate, warnings } = await ingestMedia({
       workspaceId: ctx.workspaceId,
-      kind,
-      storageKey: stored.storageKey,
-      publicUrl: stored.publicUrl,
+      body,
+      originalName: file.name,
       mimeType: file.type,
-      sizeBytes: stored.sizeBytes,
-      checksum: stored.checksum,
-      width: probe?.width ?? null,
-      height: probe?.height ?? null,
-      durationMs: probe?.durationMs ?? null,
-      originalName: file.name || null,
-      thumbnailKey,
-      thumbnailUrl,
-    },
-  });
-
-  return NextResponse.json({
-    id: asset.id,
-    kind: asset.kind,
-    publicUrl: asset.publicUrl,
-    thumbnailUrl: asset.thumbnailUrl,
-    width: asset.width,
-    height: asset.height,
-    durationMs: asset.durationMs,
-    sizeBytes: asset.sizeBytes,
-    // Avisos não bloqueiam, mas a pessoa precisa saber (corte, codec, etc).
-    warnings: issues.filter((i) => i.level === "warning"),
-  });
+      usedFor: usedForRaw as UsedFor,
+    });
+    return NextResponse.json({
+      id: asset.id,
+      kind: asset.kind,
+      publicUrl: asset.publicUrl,
+      thumbnailUrl: asset.thumbnailUrl,
+      width: asset.width,
+      height: asset.height,
+      durationMs: asset.durationMs,
+      sizeBytes: asset.sizeBytes,
+      duplicate,
+      warnings,
+    });
+  } catch (e) {
+    if (e instanceof UnsupportedMediaError) {
+      return NextResponse.json({ error: e.message }, { status: 415 });
+    }
+    if (e instanceof MediaTooLargeError) {
+      return NextResponse.json({ error: e.message }, { status: 413 });
+    }
+    if (e instanceof MediaRejectedError) {
+      return NextResponse.json({ error: e.message, issues: e.issues }, { status: 422 });
+    }
+    throw e;
+  }
 }

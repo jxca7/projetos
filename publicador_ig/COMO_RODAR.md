@@ -96,6 +96,24 @@ META_DRIVER="graph"
 Reinicie o `pnpm dev` e o `pnpm worker`. A partir daí, **Conectar Instagram** na
 tela de Contas abre o OAuth de verdade.
 
+## Baixar Reels para a biblioteca
+
+Na tela **Biblioteca** há o bloco **Importar Reels do Instagram**: cole um ou
+vários links (um por linha) e o servidor baixa com `yt-dlp`, valida e salva como
+asset, pronto para reaproveitar em qualquer post.
+
+- **Conteúdo que exige login** (a maioria dos Reels): clique em **Configurar
+  cookie**, exporte o `cookies.txt` da sua conta com a extensão *Get cookies.txt
+  LOCALLY* e cole ali. Fica cifrado no banco (AES-256-GCM), como os tokens.
+- Use uma **conta secundária** no cookie e não baixe centenas de uma vez: baixar
+  rápido demais pode gerar limite temporário **na conta do cookie** (não afeta as
+  contas conectadas, que publicam por outro caminho).
+- Baixe apenas conteúdo que você tem direito de usar. A ferramenta não remove
+  marca d'água nem contorna bloqueio: é download direto do arquivo.
+
+Em desenvolvimento, instale o `yt-dlp` na máquina (`pipx install yt-dlp` ou o
+binário do projeto) e tenha o `ffmpeg` no PATH. No Docker já vem na imagem.
+
 ## Comandos úteis
 
 ```bash

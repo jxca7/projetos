@@ -4,6 +4,7 @@ import { redis } from "./redis";
 export const QUEUE_PUBLISH = "publish";
 export const QUEUE_INSIGHTS = "insights";
 export const QUEUE_MAINTENANCE = "maintenance";
+export const QUEUE_IMPORT = "import";
 
 export interface PublishJobData {
   targetId: string;
@@ -21,10 +22,15 @@ export type MaintenanceJobData =
   | { kind: "refresh-instagram-tokens" }
   | { kind: "dispatch-reminders" };
 
+export interface ImportJobData {
+  importId: string;
+}
+
 const globalForQueues = globalThis as unknown as {
   publishQueue?: Queue<PublishJobData>;
   insightsQueue?: Queue<InsightsJobData>;
   maintenanceQueue?: Queue<MaintenanceJobData>;
+  importQueue?: Queue<ImportJobData>;
 };
 
 /**
@@ -110,6 +116,48 @@ export async function enqueueInsights(
       attempts: 3,
       backoff: { type: "exponential", delay: 60_000 },
       removeOnComplete: { age: 7 * 24 * 3600, count: 2_000 },
+    },
+  );
+}
+
+export function importQueue(): Queue<ImportJobData> {
+  if (!globalForQueues.importQueue) {
+    globalForQueues.importQueue = new Queue<ImportJobData>(QUEUE_IMPORT, {
+      connection: redis(),
+    });
+  }
+  return globalForQueues.importQueue;
+}
+
+/**
+ * Enfileira o download de um Reel. Um job por MediaImport (jobId determinístico),
+ * então reenfileirar a mesma importação não duplica o download. Deixamos o
+ * BullMQ tentar de novo em falha transitória, com backoff largo para ser gentil
+ * com o Instagram.
+ */
+export async function enqueueImport(importId: string): Promise<void> {
+  const q = importQueue();
+  const jobId = `import-${importId}`;
+  // O BullMQ ignora um add com jobId já existente (inclusive concluído/falho), o
+  // que mataria o "tentar de novo". Remove o job anterior antes de reenfileirar.
+  const anterior = await q.getJob(jobId);
+  if (anterior) {
+    try {
+      await anterior.remove();
+    } catch {
+      // Job em execução não pode ser removido; o processador checa o status no
+      // banco e não rebaixa uma importação já resolvida.
+    }
+  }
+  await q.add(
+    "download-reel",
+    { importId },
+    {
+      jobId,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: { age: 24 * 3600, count: 1_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
     },
   );
 }

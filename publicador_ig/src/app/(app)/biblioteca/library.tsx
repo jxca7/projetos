@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   deleteMediaAction,
@@ -30,6 +30,11 @@ export function MediaLibrary({ initial }: { initial: MediaItem[] }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [itens, setItens] = useState<MediaItem[]>(initial);
+  // Quando o servidor recarrega (ex.: um Reel importado entrou na biblioteca),
+  // `initial` muda e refletimos a verdade do banco na grade.
+  useEffect(() => {
+    setItens(initial);
+  }, [initial]);
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [busca, setBusca] = useState("");
   const [enviando, setEnviando] = useState(false);

@@ -81,6 +81,8 @@ model Workspace {
   socialAccounts SocialAccount[]
   posts          Post[]
   mediaAssets    MediaAsset[]
+  mediaImports    MediaImport[]
+  instagramCookie InstagramCookie?
   subscription   Subscription?
 }
 
@@ -195,6 +197,7 @@ model MediaAsset {
 
   workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   postMedia PostMedia[]
+  imports   MediaImport[]
 
   @@index([workspaceId, createdAt])
 }
@@ -493,4 +496,53 @@ model MetaApp {
 
   @@unique([workspaceId, appId])
   @@index([workspaceId, isActive])
+}
+
+/// Estado de um download de Reel/post do Instagram para a biblioteca.
+/// A pessoa cola o link, o worker baixa com yt-dlp, valida e salva o asset.
+model MediaImport {
+  id          String       @id @default(cuid())
+  workspaceId String
+  /// URL de origem (Reel, post ou vídeo) colada pela pessoa.
+  sourceUrl   String
+  status      ImportStatus @default(QUEUED)
+  /// Título/legenda que o yt-dlp leu da origem, quando disponível.
+  title       String?
+  /// Mensagem de erro em português, quando o download falha.
+  error       String?
+  /// Asset gerado, quando conclui (ou o já existente, no caso de duplicata).
+  assetId     String?
+  /// Quem pediu a importação.
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset     MediaAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+}
+
+enum ImportStatus {
+  QUEUED
+  DOWNLOADING
+  DONE
+  DUPLICATE
+  FAILED
+}
+
+/// cookies.txt (formato Netscape) do Instagram, cifrado em repouso.
+/// Um por workspace. Usado pelo yt-dlp para baixar conteúdo que exige login.
+/// É a sessão de uma conta do Instagram — some junto com o workspace.
+model InstagramCookie {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  cookiesEnc  String
+  /// Rótulo livre, ex.: "@conta_secundaria", só para a pessoa se situar.
+  label       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }

@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
-import { maintenanceQueue } from "@/lib/queue";
+import { maintenanceQueue, enqueueImport } from "@/lib/queue";
+import { isInstagramUrl } from "@/lib/media/download";
 
 /** Garante que o recurso pertence ao workspace do usuário logado. */
 async function ownedPost(postId: string, workspaceId: string) {
@@ -667,4 +668,123 @@ export async function removeDuplicateMediaAction() {
 
   revalidatePath("/biblioteca");
   return { ok: true as const, removed: apagar.length };
+}
+
+// ---------------------------------------------------------------------------
+// Importação de Reels do Instagram para a biblioteca
+// ---------------------------------------------------------------------------
+
+const MAX_URLS_POR_VEZ = 50;
+
+/** Enfileira o download de um ou vários Reels/posts do Instagram. */
+export async function importReelsAction(input: { urls: string[] }) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para importar mídia." };
+
+  // Normaliza, remove vazios e duplicatas, e separa o que não é link do Instagram.
+  const brutos = (input.urls ?? [])
+    .map((u) => u.trim())
+    .filter(Boolean);
+  const vistos = new Set<string>();
+  const validas: string[] = [];
+  let invalidas = 0;
+  for (const u of brutos) {
+    if (vistos.has(u)) continue;
+    vistos.add(u);
+    if (isInstagramUrl(u)) validas.push(u);
+    else invalidas++;
+  }
+
+  if (validas.length === 0) {
+    return { ok: false as const, error: "Nenhum link válido do Instagram.", invalid: invalidas };
+  }
+  if (validas.length > MAX_URLS_POR_VEZ) {
+    return {
+      ok: false as const,
+      error: `São ${validas.length} links de uma vez. O limite é ${MAX_URLS_POR_VEZ} por envio.`,
+    };
+  }
+
+  let enfileiradas = 0;
+  for (const url of validas) {
+    const imp = await prisma.mediaImport.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        sourceUrl: url,
+        status: "QUEUED",
+        createdById: ctx.userId,
+      },
+    });
+    await enqueueImport(imp.id);
+    enfileiradas++;
+  }
+
+  revalidatePath("/biblioteca");
+  return { ok: true as const, queued: enfileiradas, invalid: invalidas };
+}
+
+/** Reenfileira uma importação que falhou. */
+export async function retryImportAction(importId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const imp = await prisma.mediaImport.findFirst({
+    where: { id: importId, workspaceId: ctx.workspaceId },
+  });
+  if (!imp) return { ok: false as const, error: "Importação não encontrada." };
+
+  await prisma.mediaImport.update({
+    where: { id: imp.id },
+    data: { status: "QUEUED", error: null },
+  });
+  await enqueueImport(imp.id);
+  revalidatePath("/biblioteca");
+  return { ok: true as const };
+}
+
+/** Limpa da lista as importações já concluídas ou com erro. */
+export async function clearImportsAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const r = await prisma.mediaImport.deleteMany({
+    where: { workspaceId: ctx.workspaceId, status: { in: ["DONE", "DUPLICATE", "FAILED"] } },
+  });
+  revalidatePath("/biblioteca");
+  return { ok: true as const, removed: r.count };
+}
+
+/** Salva (cifrado) o cookies.txt do Instagram usado nos downloads com login. */
+export async function saveIgCookiesAction(input: { cookies: string; label?: string }) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const cookies = (input.cookies ?? "").trim();
+  // Checagem de sanidade: é mesmo um cookies.txt do Instagram?
+  if (cookies.length < 50 || !cookies.toLowerCase().includes("instagram")) {
+    return {
+      ok: false as const,
+      error: "Isso não parece um cookies.txt do Instagram. Exporte com a extensão e cole o conteúdo inteiro.",
+    };
+  }
+
+  const label = (input.label ?? "").trim().slice(0, 80) || null;
+  const cookiesEnc = encryptSecret(cookies);
+  await prisma.instagramCookie.upsert({
+    where: { workspaceId: ctx.workspaceId },
+    create: { workspaceId: ctx.workspaceId, cookiesEnc, label },
+    update: { cookiesEnc, label },
+  });
+  revalidatePath("/biblioteca");
+  return { ok: true as const };
+}
+
+/** Remove o cookie salvo. */
+export async function clearIgCookiesAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  await prisma.instagramCookie.deleteMany({ where: { workspaceId: ctx.workspaceId } });
+  revalidatePath("/biblioteca");
+  return { ok: true as const };
 }

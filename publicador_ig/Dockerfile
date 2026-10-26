@@ -1,11 +1,26 @@
 # Imagem única que roda tanto o painel quanto o worker.
 # O comando de cada um é escolhido no docker-compose.
 FROM node:22-slim AS base
-# ffprobe/ffmpeg validam a mídia no upload antes de enviar à Meta.
+# ffprobe/ffmpeg validam a mídia no upload (e o yt-dlp usa para remuxar).
 # openssl é usado pela geração de segredos e pelo Prisma.
+# curl baixa o yt-dlp.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg openssl ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg openssl ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
+# yt-dlp: baixa os Reels na importação da biblioteca. Binário único (PyInstaller),
+# sem dependência de Python. Deixe YTDLP_VERSION vazio para pegar a última versão
+# (recomendado: o Instagram muda e a versão nova acompanha); fixe uma tag
+# (ex.: 2025.09.05) se quiser um build reproduzível.
+ARG YTDLP_VERSION=
+RUN set -eux; \
+  if [ -n "$YTDLP_VERSION" ]; then \
+    url="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_linux"; \
+  else \
+    url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"; \
+  fi; \
+  curl -fsSL "$url" -o /usr/local/bin/yt-dlp; \
+  chmod +x /usr/local/bin/yt-dlp; \
+  /usr/local/bin/yt-dlp --version
 # Fixa a MESMA versão do pnpm que gerou o lockfile. Sem isto, o corepack baixa
 # a versão que vier por padrão na imagem, que pode aplicar a trava de idade
 # mínima de pacote (minimumReleaseAge) e recusar um lockfile legítimo.
