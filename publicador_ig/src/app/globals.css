@@ -1,73 +1,157 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Sistema de design — "sala de controle"
+   Dark-first na intenção, mas claro e escuro recebem o mesmo cuidado.
+   Toda cor é token; componentes nunca usam literal.
+--------------------------------------------------------------------------- */
+
 :root {
-  --bg: #f7f7f8;
+  /* superfícies (claro) */
+  --bg: #f3f4fa;
   --surface: #ffffff;
-  --surface-2: #f2f2f4;
-  --border: #e2e2e6;
-  --text: #16161a;
-  --text-muted: #65656e;
-  --accent: #4f46e5;
-  --accent-soft: #eef0ff;
-  --ok: #0f7a4d;
-  --ok-soft: #e7f5ee;
-  --warn: #9a5b00;
-  --warn-soft: #fdf2e2;
-  --danger: #b0252d;
-  --danger-soft: #fdeceb;
+  --surface-2: #f3f4fa;
+  --surface-3: #e9ebf4;
+  --border: #e4e7f1;
+  --border-strong: #d2d7e6;
+
+  /* texto */
+  --text: #13162a;
+  --muted: #5c6580;
+  --faint: #8a92ac;
+
+  /* marca */
+  --accent: #5a49f5;
+  --accent-2: #8b6cff;
+  --accent-ink: #ffffff;
+  --accent-soft: #ecebfe;
+  --accent-line: #d9d6fc;
+
+  /* semânticas */
+  --ok: #0a7a52;
+  --ok-soft: #e2f5ec;
+  --warn: #9c6209;
+  --warn-soft: #fbf0db;
+  --danger: #c22a3a;
+  --danger-soft: #fdecec;
+
+  /* efeitos */
+  --ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --shadow-sm: 0 1px 2px rgba(20, 22, 42, 0.06), 0 1px 1px rgba(20, 22, 42, 0.04);
+  --shadow: 0 6px 20px -6px rgba(20, 22, 42, 0.14), 0 2px 6px -2px rgba(20, 22, 42, 0.08);
+  --shadow-lg: 0 24px 60px -18px rgba(20, 22, 42, 0.22);
+  --glow: 0 10px 40px -10px color-mix(in srgb, var(--accent) 45%, transparent);
+
+  /* raios */
+  --r-sm: 9px;
+  --r: 13px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+
+  /* tipografia */
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-head: var(--font-display), var(--font-body), ui-sans-serif, system-ui, sans-serif;
+
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0d0d10;
-    --surface: #16161b;
-    --surface-2: #1d1d24;
-    --border: #2a2a33;
-    --text: #ececf1;
-    --text-muted: #9a9aa6;
-    --accent: #8b85ff;
-    --accent-soft: #1e1c3a;
-    --ok: #4ade9b;
-    --ok-soft: #10261d;
-    --warn: #f0b457;
-    --warn-soft: #2a1f0e;
-    --danger: #ff8a85;
-    --danger-soft: #2d1416;
+    --bg: #090a10;
+    --surface: #14161f;
+    --surface-2: #1a1d28;
+    --surface-3: #222634;
+    --border: #262a38;
+    --border-strong: #353b4d;
+
+    --text: #eef0f7;
+    --muted: #9aa2b8;
+    --faint: #69728f;
+
+    --accent: #8b7dff;
+    --accent-2: #6ea6ff;
+    --accent-ink: #0b0c14;
+    --accent-soft: #1d1b33;
+    --accent-line: #2e2b50;
+
+    --ok: #46e0a0;
+    --ok-soft: #10281e;
+    --warn: #f0b45a;
+    --warn-soft: #2a1f0d;
+    --danger: #ff7c86;
+    --danger-soft: #2d1519;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.7);
+    --glow: 0 14px 50px -12px color-mix(in srgb, var(--accent) 50%, transparent);
+
+    color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0d0d10;
-  --surface: #16161b;
-  --surface-2: #1d1d24;
-  --border: #2a2a33;
-  --text: #ececf1;
-  --text-muted: #9a9aa6;
-  --accent: #8b85ff;
-  --accent-soft: #1e1c3a;
-  --ok: #4ade9b;
-  --ok-soft: #10261d;
-  --warn: #f0b457;
-  --warn-soft: #2a1f0e;
-  --danger: #ff8a85;
-  --danger-soft: #2d1416;
+  --bg: #090a10;
+  --surface: #14161f;
+  --surface-2: #1a1d28;
+  --surface-3: #222634;
+  --border: #262a38;
+  --border-strong: #353b4d;
+
+  --text: #eef0f7;
+  --muted: #9aa2b8;
+  --faint: #69728f;
+
+  --accent: #8b7dff;
+  --accent-2: #6ea6ff;
+  --accent-ink: #0b0c14;
+  --accent-soft: #1d1b33;
+  --accent-line: #2e2b50;
+
+  --ok: #46e0a0;
+  --ok-soft: #10281e;
+  --warn: #f0b45a;
+  --warn-soft: #2a1f0d;
+  --danger: #ff7c86;
+  --danger-soft: #2d1519;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.7);
+  --glow: 0 14px 50px -12px color-mix(in srgb, var(--accent) 50%, transparent);
+
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
-  --color-muted: var(--text-muted);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --radius-sm: var(--r-sm);
+  --radius-DEFAULT: var(--r);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --font-sans: var(--font-sans);
+}
+
+* {
+  border-color: var(--border);
 }
 
 html,
@@ -77,42 +161,109 @@ body {
 }
 
 body {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "Noto Sans", sans-serif;
+  margin: 0;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+  /* brilho ambiente sutil no topo, dá profundidade sem pesar */
+  background-image: radial-gradient(
+    120% 55% at 50% -10%,
+    color-mix(in srgb, var(--accent) 12%, transparent),
+    transparent 70%
+  );
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+.font-head {
+  font-family: var(--font-head);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 ::selection {
-  background: var(--accent);
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--text);
 }
 
-/* Campos de formulário herdam os tokens em vez de repetir classes em cada input.
-   O seletor exclui os tipos que têm aparência própria em vez de listar os que
-   têm caixa: `input` sem atributo `type` se comporta como text mas NÃO casa com
-   `input[type="text"]`, e ficava sem borda nenhuma. */
+/* rolagem discreta */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  background-clip: content-box;
+}
+
+/* campos de formulário — herdam os tokens.
+   O seletor exclui os tipos com aparência própria em vez de listar os que têm
+   caixa, porque input SEM atributo type não casa com input[type="text"]. */
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="submit"]):not([type="button"]),
 textarea,
 select {
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.7rem;
-  font-size: 0.875rem;
   width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 0.6rem 0.8rem;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
-
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
+}
 input:not([type="checkbox"]):not([type="radio"]):focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+  background: var(--surface);
 }
 
 textarea {
   resize: vertical;
   min-height: 7rem;
-  line-height: 1.5;
+  line-height: 1.55;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

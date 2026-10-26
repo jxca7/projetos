@@ -13,12 +13,94 @@ export interface NavItem {
   badgeTone?: "danger" | "warn";
 }
 
+/** Ícones por rota — traço fino, 20px, herdam a cor. */
+function NavIcon({ href, className }: { href: string; className?: string }) {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    className: cn("size-5", className),
+  };
+  switch (href) {
+    case "/":
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="7" height="9" rx="1.5" />
+          <rect x="14" y="3" width="7" height="5" rx="1.5" />
+          <rect x="14" y="12" width="7" height="9" rx="1.5" />
+          <rect x="3" y="16" width="7" height="5" rx="1.5" />
+        </svg>
+      );
+    case "/publicar":
+      return (
+        <svg {...common}>
+          <path d="M22 2 11 13" />
+          <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+        </svg>
+      );
+    case "/fila":
+      return (
+        <svg {...common}>
+          <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
+          <path d="m3 12 9 4.5 9-4.5" />
+          <path d="m3 16.5 9 4.5 9-4.5" />
+        </svg>
+      );
+    case "/contas":
+      return (
+        <svg {...common}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13A4 4 0 0 1 16 11" />
+        </svg>
+      );
+    case "/apps-meta":
+      return (
+        <svg {...common}>
+          <path d="M9 2v6M15 2v6M9 16v6M15 16v6" />
+          <rect x="5" y="8" width="14" height="8" rx="2" />
+        </svg>
+      );
+    case "/contas-off":
+      return (
+        <svg {...common}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="m17 8 5 5M22 8l-5 5" />
+        </svg>
+      );
+    case "/saude":
+      return (
+        <svg {...common}>
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      );
+    case "/pendencias":
+      return (
+        <svg {...common}>
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+        </svg>
+      );
+  }
+}
+
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Navegação lateral, usada em telas grandes. */
+/** Navegação lateral — telas grandes. */
 export function SideNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   const groups = items.reduce<Record<string, NavItem[]>>((acc, item) => {
@@ -27,31 +109,39 @@ export function SideNav({ items }: { items: NavItem[] }) {
   }, {});
 
   return (
-    <nav className="space-y-5">
+    <nav className="space-y-6">
       {Object.entries(groups).map(([group, groupItems]) => (
         <div key={group}>
-          <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
             {group}
           </p>
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {groupItems.map((item) => {
               const active = isActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition",
+                    "group relative flex items-center gap-3 rounded-[var(--r-sm)] px-3 py-2 text-sm transition-colors",
                     active
-                      ? "bg-accent-soft font-medium text-accent"
+                      ? "bg-accent-soft font-semibold text-accent"
                       : "text-muted hover:bg-surface-2 hover:text-text",
                   )}
                 >
-                  <span>{item.label}</span>
+                  {active ? (
+                    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent" />
+                  ) : null}
+                  <NavIcon
+                    href={item.href}
+                    className={cn("shrink-0 transition-colors", active ? "text-accent" : "text-faint group-hover:text-muted")}
+                  />
+                  <span className="flex-1">{item.label}</span>
                   {item.badge ? (
                     <span
                       className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+                        "grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                         item.badgeTone === "danger"
                           ? "bg-danger-soft text-danger"
                           : "bg-warn-soft text-warn",
@@ -70,18 +160,12 @@ export function SideNav({ items }: { items: NavItem[] }) {
   );
 }
 
-/**
- * Barra inferior do celular.
- *
- * Fica fixa porque, no uso real, a pessoa alterna entre publicar e conferir a
- * fila o tempo todo — e no telefone o menu em gaveta cobra dois toques por
- * troca de tela.
- */
+/** Barra inferior fixa — celular. */
 export function BottomNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/90 backdrop-blur-lg lg:hidden">
       <ul className="mx-auto flex max-w-lg">
         {items.map((item) => {
           const active = isActive(pathname, item.href);
@@ -91,22 +175,22 @@ export function BottomNav({ items }: { items: NavItem[] }) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex flex-col items-center gap-0.5 px-1 py-2.5 text-[11px] transition",
-                  active ? "font-medium text-accent" : "text-muted",
+                  "relative flex flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors",
+                  active ? "text-accent" : "text-faint",
                 )}
               >
+                {active ? (
+                  <span className="absolute top-0 h-[3px] w-8 rounded-full bg-accent" />
+                ) : null}
+                <NavIcon href={item.href} className="size-[22px]" />
                 <span>{item.short}</span>
                 {item.badge ? (
                   <span
                     className={cn(
-                      "absolute top-1.5 right-1/2 translate-x-4 rounded-full px-1.5 text-[10px] font-medium",
-                      item.badgeTone === "danger"
-                        ? "bg-danger-soft text-danger"
-                        : "bg-warn-soft text-warn",
+                      "absolute right-[22%] top-1.5 size-2 rounded-full ring-2 ring-surface",
+                      item.badgeTone === "danger" ? "bg-danger" : "bg-warn",
                     )}
-                  >
-                    {item.badge}
-                  </span>
+                  />
                 ) : null}
               </Link>
             </li>

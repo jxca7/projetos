@@ -4,6 +4,8 @@ import { requireContext } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui";
 import { BottomNav, SideNav, type NavItem } from "@/components/nav";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandMark } from "@/components/brand";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireContext();
@@ -55,10 +57,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     },
   ];
 
-  // No celular a barra inferior mostra só o que se usa o tempo todo.
   const bottomItems = items.filter((i) =>
     ["/", "/publicar", "/fila", "/contas", "/saude"].includes(i.href),
   );
+
+  const inicial = (ctx.userName || ctx.userEmail).trim().charAt(0).toUpperCase();
 
   async function sair() {
     "use server";
@@ -66,37 +69,60 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col lg:flex-row">
-      <aside className="shrink-0 border-b border-border px-5 py-4 lg:w-60 lg:border-r lg:border-b-0 lg:py-5">
-        <div className="flex items-center justify-between gap-3">
+    <div className="mx-auto flex min-h-screen w-full max-w-[90rem] flex-col lg:flex-row">
+      {/* Topo no celular */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-surface/80 px-4 py-3 backdrop-blur-lg lg:hidden">
+        <Link href="/" className="flex items-center gap-2.5">
+          <BrandMark className="size-8" />
+          <span className="font-head text-sm font-semibold">Publicador IG</span>
+        </Link>
+        <form action={sair}>
+          <Button variant="ghost" type="submit" className="px-2.5 py-1.5 text-xs">
+            Sair
+          </Button>
+        </form>
+      </header>
+
+      {/* Sidebar no desktop */}
+      <aside className="hidden shrink-0 border-r border-border lg:flex lg:w-64 lg:flex-col">
+        <div className="flex items-center gap-3 px-5 py-5">
+          <BrandMark className="size-9" />
           <div className="min-w-0">
-            <Link href="/" className="block text-base font-semibold tracking-tight">
+            <Link href="/" className="block font-head text-[15px] font-semibold tracking-tight">
               Publicador IG
             </Link>
-            <p className="mt-0.5 truncate text-xs text-muted">{ctx.workspaceName}</p>
+            <p className="truncate text-xs text-faint">{ctx.workspaceName}</p>
           </div>
-          <form action={sair} className="lg:hidden">
-            <Button variant="ghost" type="submit" className="px-2 py-1 text-xs">
-              Sair
-            </Button>
-          </form>
         </div>
 
-        <div className="mt-5 hidden lg:block">
+        <div className="flex-1 overflow-y-auto px-3 pb-4">
           <SideNav items={items} />
         </div>
 
-        <div className="mt-6 hidden border-t border-border pt-4 lg:block">
-          <p className="truncate text-xs text-muted">{ctx.userEmail}</p>
-          <form action={sair}>
-            <Button variant="ghost" type="submit" className="mt-1 px-0 text-xs">
-              Sair
-            </Button>
-          </form>
+        <div className="border-t border-border p-3">
+          <div className="mb-3 flex items-center gap-2.5 rounded-[var(--r-sm)] px-2 py-1.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent-2))] text-sm font-semibold text-[var(--accent-ink)]">
+              {inicial}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{ctx.userName ?? "Você"}</p>
+              <p className="truncate text-xs text-faint">{ctx.userEmail}</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <ThemeToggle />
+            <form action={sair}>
+              <Button variant="ghost" type="submit" className="px-2.5 py-1.5 text-xs">
+                Sair
+              </Button>
+            </form>
+          </div>
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-5 py-6 pb-24 lg:px-8 lg:pb-6">{children}</main>
+      <main className="min-w-0 flex-1 px-4 py-6 pb-24 sm:px-6 lg:px-9 lg:pb-9">
+        <div className="mx-auto max-w-5xl">{children}</div>
+      </main>
 
       <BottomNav items={bottomItems} />
     </div>

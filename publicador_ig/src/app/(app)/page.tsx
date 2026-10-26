@@ -83,14 +83,46 @@ export default async function DashboardPage() {
         <Stat
           label="Contas ativas"
           value={active.length}
+          tone={broken.length > 0 ? "warn" : "ok"}
           hint={accounts.length > active.length ? `${broken.length} com problema` : "todas ok"}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            </svg>
+          }
         />
-        <Stat label="Na fila" value={scheduledCount} hint="destinos aguardando" />
-        <Stat label="Publicados (7d)" value={publishedWeek} hint={failedWeek > 0 ? `${failedWeek} falharam` : "nenhuma falha"} />
+        <Stat
+          label="Na fila"
+          value={scheduledCount}
+          tone={scheduledCount > 0 ? "accent" : "neutral"}
+          hint="destinos aguardando"
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+            </svg>
+          }
+        />
+        <Stat
+          label="Publicados (7d)"
+          value={publishedWeek}
+          tone="ok"
+          hint={failedWeek > 0 ? `${failedWeek} falharam` : "nenhuma falha"}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m22 4-10 10.01-3-3" />
+            </svg>
+          }
+        />
         <Stat
           label="Alcance (7d)"
           value={formatNumber(reach._sum.reach ?? 0)}
+          tone="accent"
           hint={`${formatNumber(reach._sum.views ?? 0)} views`}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+          }
         />
       </div>
 
@@ -161,7 +193,15 @@ export default async function DashboardPage() {
       ) : null}
 
       <section>
-        <SectionTitle title="Contas" action={<Link href="/contas" className="text-sm text-accent hover:underline">Gerenciar</Link>} />
+        <SectionTitle
+          title="Contas"
+          hint={accounts.length > 6 ? `Mostrando 6 de ${accounts.length}.` : undefined}
+          action={
+            <Link href="/contas" className="text-sm font-medium text-accent hover:underline">
+              Gerenciar todas
+            </Link>
+          }
+        />
         {accounts.length === 0 ? (
           <Empty
             title="Nenhuma conta conectada"
@@ -169,7 +209,7 @@ export default async function DashboardPage() {
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {accounts.map((a) => {
+            {accounts.slice(0, 6).map((a) => {
               const s = ACCOUNT_STATUS[a.status];
               const used = a.quotaUsage ?? 0;
               const total = a.quotaTotal ?? 0;
