@@ -8,6 +8,7 @@ import { requireContext, canEdit } from "@/lib/session";
 import { storage, buildKey } from "@/lib/storage";
 import { probeMedia } from "@/lib/media/probe";
 import { validateMedia, hasBlockingIssue, type ValidationIssue } from "@/lib/media/validate";
+import { extractPoster } from "@/lib/media/thumbnail";
 
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GB, o teto da Meta para Reels
 
@@ -31,10 +32,10 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Arquivo não enviado." }, { status: 400 });
   }
-  if (!["REEL", "IMAGE", "CAROUSEL", "STORY"].includes(usedForRaw)) {
+  if (!["REEL", "IMAGE", "CAROUSEL", "STORY", "LIBRARY"].includes(usedForRaw)) {
     return NextResponse.json({ error: "Tipo de post inválido." }, { status: 400 });
   }
-  const usedFor = usedForRaw as "REEL" | "IMAGE" | "CAROUSEL" | "STORY";
+  const usedFor = usedForRaw as "REEL" | "IMAGE" | "CAROUSEL" | "STORY" | "LIBRARY";
 
   const kind = ALLOWED.get(file.type);
   if (!kind) {
@@ -48,16 +49,40 @@ export async function POST(req: NextRequest) {
   }
 
   const body = Buffer.from(await file.arrayBuffer());
+  const checksum = crypto.createHash("sha256").update(body).digest("hex");
 
-  // ffprobe le de arquivo, não de buffer: grava num temporario para inspecionar
-  // antes de aceitar a mídia no storage definitivo.
+  // Dedup: arquivo idêntico já na biblioteca deste workspace volta o existente,
+  // em vez de guardar de novo. É o que evita duplicata na origem.
+  const existente = await prisma.mediaAsset.findFirst({
+    where: { workspaceId: ctx.workspaceId, checksum },
+  });
+  if (existente) {
+    return NextResponse.json({
+      id: existente.id,
+      kind: existente.kind,
+      publicUrl: existente.publicUrl,
+      thumbnailUrl: existente.thumbnailUrl,
+      width: existente.width,
+      height: existente.height,
+      durationMs: existente.durationMs,
+      sizeBytes: existente.sizeBytes,
+      duplicate: true,
+      warnings: [] as ValidationIssue[],
+    });
+  }
+
+  // ffprobe le de arquivo, não de buffer: grava num temporario para inspecionar.
   const tmp = path.join(os.tmpdir(), `up-${crypto.randomBytes(8).toString("hex")}${path.extname(file.name)}`);
   let issues: ValidationIssue[] = [];
   let probe;
+  let posterBuf: Buffer | null = null;
   try {
     await fs.writeFile(tmp, body);
     probe = await probeMedia(tmp);
     issues = validateMedia({ kind, mimeType: file.type, sizeBytes: body.byteLength, probe, usedFor });
+    if (!hasBlockingIssue(issues) && kind === "VIDEO") {
+      posterBuf = await extractPoster(tmp);
+    }
   } finally {
     await fs.rm(tmp, { force: true });
   }
@@ -75,6 +100,19 @@ export async function POST(req: NextRequest) {
     file.type,
   );
 
+  // Guarda a capa do vídeo, quando foi possível extrair.
+  let thumbnailKey: string | null = null;
+  let thumbnailUrl: string | null = null;
+  if (posterBuf) {
+    const poster = await storage().put(
+      buildKey(ctx.workspaceId, "poster.jpg"),
+      posterBuf,
+      "image/jpeg",
+    );
+    thumbnailKey = poster.storageKey;
+    thumbnailUrl = poster.publicUrl;
+  }
+
   const asset = await prisma.mediaAsset.create({
     data: {
       workspaceId: ctx.workspaceId,
@@ -88,6 +126,8 @@ export async function POST(req: NextRequest) {
       height: probe?.height ?? null,
       durationMs: probe?.durationMs ?? null,
       originalName: file.name || null,
+      thumbnailKey,
+      thumbnailUrl,
     },
   });
 
@@ -95,6 +135,7 @@ export async function POST(req: NextRequest) {
     id: asset.id,
     kind: asset.kind,
     publicUrl: asset.publicUrl,
+    thumbnailUrl: asset.thumbnailUrl,
     width: asset.width,
     height: asset.height,
     durationMs: asset.durationMs,

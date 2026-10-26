@@ -15,7 +15,7 @@ export default async function PublicarPage() {
     return <Notice tone="danger">Seu perfil no workspace não permite publicar.</Notice>;
   }
 
-  const [accounts, folders] = await Promise.all([
+  const [accounts, folders, libraryMedia] = await Promise.all([
     prisma.socialAccount.findMany({
       where: { workspaceId: ctx.workspaceId, status: "ACTIVE" },
       orderBy: { igUsername: "asc" },
@@ -35,6 +35,15 @@ export default async function PublicarPage() {
       // Só contas ativas contam: pasta cheia de conta off engana na hora de escolher.
       include: { _count: { select: { accounts: { where: { status: "ACTIVE" } } } } },
     }),
+    prisma.mediaAsset.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      orderBy: [{ favorite: "desc" }, { createdAt: "desc" }],
+      take: 60,
+      select: {
+        id: true, kind: true, publicUrl: true, thumbnailUrl: true,
+        durationMs: true, sizeBytes: true, width: true, height: true, originalName: true,
+      },
+    }),
   ]);
 
   return (
@@ -53,6 +62,7 @@ export default async function PublicarPage() {
         <Composer
           accounts={accounts}
           folders={folders.map((f) => ({ id: f.id, name: f.name, count: f._count.accounts }))}
+          libraryMedia={libraryMedia}
           minSecondsBetweenPublishes={MIN_SECONDS_BETWEEN_PUBLISHES}
         />
       )}

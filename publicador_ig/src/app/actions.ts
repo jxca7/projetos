@@ -571,3 +571,100 @@ export async function deleteMetaAppAction(metaAppDbId: string) {
   revalidatePath("/contas-off");
   return { ok: true as const, afetadas };
 }
+
+// ---------------------------------------------------------------------------
+// Biblioteca de mídia
+// ---------------------------------------------------------------------------
+
+export async function toggleMediaFavoriteAction(mediaId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const asset = await prisma.mediaAsset.findFirst({
+    where: { id: mediaId, workspaceId: ctx.workspaceId },
+  });
+  if (!asset) return { ok: false as const, error: "Mídia não encontrada." };
+
+  const atualizado = await prisma.mediaAsset.update({
+    where: { id: mediaId },
+    data: { favorite: !asset.favorite },
+  });
+  revalidatePath("/biblioteca");
+  return { ok: true as const, favorite: atualizado.favorite };
+}
+
+/**
+ * Apaga uma mídia da biblioteca e seus arquivos no storage.
+ * Mídia usada por um post publicado não pode ser apagada (o histórico quebraria).
+ */
+export async function deleteMediaAction(mediaId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const asset = await prisma.mediaAsset.findFirst({
+    where: { id: mediaId, workspaceId: ctx.workspaceId },
+    include: { _count: { select: { postMedia: true } } },
+  });
+  if (!asset) return { ok: false as const, error: "Mídia não encontrada." };
+
+  if (asset._count.postMedia > 0) {
+    return {
+      ok: false as const,
+      error: `Em uso por ${asset._count.postMedia} post(s). Remova dos posts antes de apagar.`,
+    };
+  }
+
+  // Apaga os arquivos primeiro; se o storage falhar, o registro fica para nova tentativa.
+  const { storage } = await import("@/lib/storage");
+  try {
+    await storage().delete(asset.storageKey);
+    if (asset.thumbnailKey) await storage().delete(asset.thumbnailKey);
+  } catch {
+    /* arquivo pode já não existir; segue para remover o registro */
+  }
+
+  await prisma.mediaAsset.delete({ where: { id: mediaId } });
+  revalidatePath("/biblioteca");
+  revalidatePath("/publicar");
+  return { ok: true as const };
+}
+
+/**
+ * Remove duplicatas: mídias com o mesmo checksum, mantendo a mais antiga (e as
+ * que estão em uso). Útil para limpar uploads repetidos de antes do dedup.
+ */
+export async function removeDuplicateMediaAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const assets = await prisma.mediaAsset.findMany({
+    where: { workspaceId: ctx.workspaceId, checksum: { not: null } },
+    include: { _count: { select: { postMedia: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const vistos = new Set<string>();
+  const apagar: typeof assets = [];
+  for (const a of assets) {
+    const chave = a.checksum as string;
+    if (vistos.has(chave)) {
+      if (a._count.postMedia === 0) apagar.push(a); // nunca remove o que está em uso
+    } else {
+      vistos.add(chave);
+    }
+  }
+
+  const { storage } = await import("@/lib/storage");
+  for (const a of apagar) {
+    try {
+      await storage().delete(a.storageKey);
+      if (a.thumbnailKey) await storage().delete(a.thumbnailKey);
+    } catch {
+      /* segue */
+    }
+    await prisma.mediaAsset.delete({ where: { id: a.id } });
+  }
+
+  revalidatePath("/biblioteca");
+  return { ok: true as const, removed: apagar.length };
+}

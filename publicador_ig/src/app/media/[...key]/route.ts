@@ -32,9 +32,10 @@ export async function GET(
 
   // So' serve o que está registrado como mídia de algum workspace: impede
   // usar esta rota para ler arquivos arbitrarios do diretorio.
+  // Serve tanto o arquivo em si quanto a sua miniatura (chaves diferentes).
   const asset = await prisma.mediaAsset.findFirst({
-    where: { storageKey: key },
-    select: { mimeType: true, sizeBytes: true },
+    where: { OR: [{ storageKey: key }, { thumbnailKey: key }] },
+    select: { mimeType: true, sizeBytes: true, thumbnailKey: true },
   });
   if (!asset) return new NextResponse("Não encontrado", { status: 404 });
 
@@ -45,9 +46,11 @@ export async function GET(
     const filePath = driver.localPath(key);
     const data = await fs.readFile(filePath);
     const ext = key.slice(key.lastIndexOf(".")).toLowerCase();
+    // A miniatura tem o tipo pela extensão (JPEG); o arquivo em si usa o mimeType.
+    const isThumb = key === asset.thumbnailKey;
     return new NextResponse(new Uint8Array(data), {
       headers: {
-        "content-type": asset.mimeType || TYPES[ext] || "application/octet-stream",
+        "content-type": (isThumb ? TYPES[ext] : asset.mimeType) || TYPES[ext] || "application/octet-stream",
         "content-length": String(data.byteLength),
         "cache-control": "public, max-age=3600",
       },

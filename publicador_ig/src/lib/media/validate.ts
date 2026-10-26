@@ -48,7 +48,7 @@ export interface ValidationInput {
   mimeType: string;
   sizeBytes: number;
   probe: ProbeResult;
-  usedFor: "REEL" | "IMAGE" | "CAROUSEL" | "STORY";
+  usedFor: "REEL" | "IMAGE" | "CAROUSEL" | "STORY" | "LIBRARY";
 }
 
 function mb(bytes: number): string {
@@ -58,6 +58,32 @@ function mb(bytes: number): string {
 export function validateMedia(input: ValidationInput): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const { kind, mimeType, sizeBytes, probe, usedFor } = input;
+
+  // Modo biblioteca: a mídia fica salva para uso futuro em qualquer tipo de
+  // post, então só o que inviabiliza qualquer uso bloqueia (formato e tamanho);
+  // proporção e duração viram aviso, conferidas de novo ao montar o post.
+  if (usedFor === "LIBRARY") {
+    const aceitos =
+      kind === "IMAGE"
+        ? ["image/jpeg", "image/png"]
+        : ["video/mp4", "video/quicktime"];
+    if (!aceitos.includes(mimeType)) {
+      issues.push({
+        level: "error",
+        field: "mimeType",
+        message: `Formato ${mimeType || "desconhecido"} não aceito. Use JPEG, PNG, MP4 ou MOV.`,
+      });
+    }
+    const maxBytes = kind === "IMAGE" ? SPECS.image.maxBytes : SPECS.reel.maxBytes;
+    if (sizeBytes > maxBytes) {
+      issues.push({
+        level: "error",
+        field: "sizeBytes",
+        message: `Arquivo de ${mb(sizeBytes)} excede o limite de ${mb(maxBytes)}.`,
+      });
+    }
+    return issues;
+  }
 
   const aspect =
     probe.width && probe.height && probe.height > 0 ? probe.width / probe.height : null;

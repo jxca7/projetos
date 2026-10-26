@@ -26,6 +26,18 @@ export interface FolderOption {
   count: number;
 }
 
+export interface LibraryItem {
+  id: string;
+  kind: "IMAGE" | "VIDEO";
+  publicUrl: string;
+  thumbnailUrl: string | null;
+  durationMs: number | null;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  originalName: string | null;
+}
+
 interface UploadedMedia {
   id: string;
   kind: "IMAGE" | "VIDEO";
@@ -60,14 +72,17 @@ function localDatetimeValue(date: Date): string {
 export function Composer({
   accounts,
   folders,
+  libraryMedia,
   minSecondsBetweenPublishes,
 }: {
   accounts: AccountOption[];
   folders: FolderOption[];
+  libraryMedia: LibraryItem[];
   minSecondsBetweenPublishes: number;
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
+  const [fonte, setFonte] = useState<"upload" | "biblioteca">("upload");
 
   const [type, setType] = useState<PostType>("REEL");
   const [media, setMedia] = useState<UploadedMedia[]>([]);
@@ -96,6 +111,35 @@ export function Composer({
   );
 
   const maxMedia = type === "CAROUSEL" ? 10 : 1;
+
+  // Itens da biblioteca compatíveis com o tipo escolhido.
+  const compatLibrary = useMemo(
+    () =>
+      libraryMedia.filter((m) => {
+        if (type === "REEL") return m.kind === "VIDEO";
+        if (type === "IMAGE") return m.kind === "IMAGE";
+        return true; // carrossel e story aceitam os dois
+      }),
+    [libraryMedia, type],
+  );
+
+  function adicionarDaBiblioteca(m: LibraryItem) {
+    if (media.some((x) => x.id === m.id) || media.length >= maxMedia) return;
+    setMedia((prev) => [
+      ...prev,
+      {
+        id: m.id,
+        kind: m.kind,
+        publicUrl: m.publicUrl,
+        width: m.width,
+        height: m.height,
+        durationMs: m.durationMs,
+        sizeBytes: m.sizeBytes,
+        warnings: [],
+        name: m.originalName ?? "mídia",
+      },
+    ]);
+  }
 
   const contasVisiveis = useMemo(() => {
     const termo = buscaConta.trim().toLowerCase();
@@ -259,17 +303,95 @@ export function Composer({
 
           {media.length < maxMedia ? (
             <div>
-              <input
-                ref={fileInput}
-                type="file"
-                accept={ACCEPT[type]}
-                multiple={type === "CAROUSEL"}
-                onChange={(e) => void handleFiles(e.target.files)}
-                className="block w-full cursor-pointer rounded-lg border border-dashed border-border bg-surface px-3 py-6 text-sm text-muted"
-              />
-              {uploading ? (
-                <p className="mt-2 text-sm text-muted">Enviando e validando a mídia...</p>
-              ) : null}
+              <div className="mb-3 inline-flex rounded-[var(--r-sm)] border border-border bg-surface-2 p-0.5">
+                {(
+                  [
+                    ["upload", "Enviar novo"],
+                    ["biblioteca", `Da biblioteca${compatLibrary.length ? ` · ${compatLibrary.length}` : ""}`],
+                  ] as ["upload" | "biblioteca", string][]
+                ).map(([f, label]) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFonte(f)}
+                    className={[
+                      "rounded-[calc(var(--r-sm)-3px)] px-3 py-1 text-xs font-medium transition-colors",
+                      fonte === f ? "bg-surface text-text shadow-[var(--shadow-sm)]" : "text-faint hover:text-muted",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {fonte === "upload" ? (
+                <>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept={ACCEPT[type]}
+                    multiple={type === "CAROUSEL"}
+                    onChange={(e) => void handleFiles(e.target.files)}
+                    className="block w-full cursor-pointer rounded-lg border border-dashed border-border bg-surface px-3 py-6 text-sm text-muted"
+                  />
+                  {uploading ? (
+                    <p className="mt-2 text-sm text-muted">Enviando e validando a mídia...</p>
+                  ) : null}
+                </>
+              ) : compatLibrary.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
+                  Nada compatível na biblioteca.{" "}
+                  <a href="/biblioteca" className="text-accent hover:underline">
+                    Enviar mídia
+                  </a>
+                </p>
+              ) : (
+                <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
+                  {compatLibrary.map((m) => {
+                    const escolhida = media.some((x) => x.id === m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => adicionarDaBiblioteca(m)}
+                        disabled={escolhida}
+                        className={[
+                          "relative aspect-square overflow-hidden rounded-lg border bg-surface-2 transition",
+                          escolhida ? "border-accent opacity-60" : "border-border hover:border-accent-line",
+                        ].join(" ")}
+                      >
+                        {m.kind === "IMAGE" || m.thumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={m.kind === "IMAGE" ? m.publicUrl : (m.thumbnailUrl as string)}
+                            alt=""
+                            loading="lazy"
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <span className="grid size-full place-items-center text-faint">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="size-6">
+                              <path d="M8 5v14l11-7L8 5Z" />
+                            </svg>
+                          </span>
+                        )}
+                        {m.kind === "VIDEO" && m.durationMs ? (
+                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">
+                            {formatDuration(m.durationMs)}
+                          </span>
+                        ) : null}
+                        {escolhida ? (
+                          <span className="absolute inset-0 grid place-items-center bg-accent/20 text-accent">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-6" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m20 6-11 11-5-5" />
+                            </svg>
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : null}
         </Card>

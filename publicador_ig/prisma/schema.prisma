@@ -183,6 +183,14 @@ model MediaAsset {
   checksum     String?
   originalName String?
 
+  /// Capa (poster) extraída do vídeo, para a grade da biblioteca.
+  thumbnailKey String?
+  thumbnailUrl String?
+  /// Favorita da pessoa, para filtrar o que mais usa.
+  favorite     Boolean   @default(false)
+  /// Última vez usada num post, para ordenar por "mais usadas".
+  lastUsedAt   DateTime?
+
   createdAt DateTime @default(now())
 
   workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
