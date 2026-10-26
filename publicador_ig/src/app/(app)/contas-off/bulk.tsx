@@ -3,13 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  disconnectAccountsAction,
-  reactivateAccountsAction,
-} from "@/app/actions";
+import { disconnectAccountsAction, reactivateAccountsAction } from "@/app/actions";
 import { Badge, Button, Card, Notice } from "@/components/ui";
 import { Avatar } from "@/components/avatar";
-import { ACCOUNT_STATUS } from "@/lib/labels";
+import { ACCOUNT_STATUS, formatDateTime } from "@/lib/labels";
 import type { AccountStatus } from "@/generated/prisma/enums";
 
 export interface OffAccount {
@@ -20,16 +17,24 @@ export interface OffAccount {
   statusMessage: string | null;
   folderName: string | null;
   tokenExpired: boolean;
+  tokenExpiresAt: string | null;
+  failures24h: number;
+  timezone: string;
 }
 
-/** O que cada estado exige de quem administra. */
-const ACAO_POR_ESTADO: Record<string, string> = {
-  TOKEN_EXPIRED:
-    "A Meta invalidou o token. Só volta passando pelo OAuth de novo — não há botão que resolva.",
-  REVOKED:
-    "O acesso foi revogado no Instagram ou no Business Manager. Confira a conta no app e reconecte.",
-  DISABLED: "Desligada aqui no painel. Pode ser reativada direto, se o token ainda valer.",
-};
+/** Instrução específica por estado, mostrada na caixa de cada conta. */
+function instrucao(a: OffAccount): string {
+  if (a.status === "TOKEN_EXPIRED") {
+    return "O Instagram pediu login nesse @. Abra o Instagram, confirme a tela da Meta e reconecte. A conta não está suspensa.";
+  }
+  if (a.status === "REVOKED") {
+    return "O acesso foi revogado no Instagram ou no Business Manager. Confira a conta no app e reconecte pelo OAuth.";
+  }
+  if (a.tokenExpired) {
+    return "Desligada aqui, mas o token já venceu: precisa passar pelo OAuth de novo.";
+  }
+  return "Desligada aqui no painel. Dá para reativar direto, porque o token ainda vale.";
+}
 
 export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
   const router = useRouter();
@@ -74,13 +79,14 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
     <div className="space-y-4">
       {msg ? <Notice tone={msg.tone}>{msg.text}</Notice> : null}
 
+      {/* Ações em massa */}
       <Card>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/api/meta/connect"
-            className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"
+            className="rounded-[var(--r-sm)] bg-[linear-gradient(135deg,var(--accent),var(--accent-2))] px-3.5 py-2 text-sm font-semibold text-[var(--accent-ink)] transition hover:brightness-105"
           >
-            Reconectar pelo OAuth ({precisaOauth.length})
+            Reconectar todas ({precisaOauth.length})
           </Link>
           <Button
             variant="secondary"
@@ -98,6 +104,9 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
           >
             Desconectar selecionadas ({selected.length})
           </Button>
+          <Button variant="ghost" type="button" disabled={pending} onClick={() => router.refresh()}>
+            Atualizar
+          </Button>
         </div>
         <p className="mt-3 text-xs text-muted">
           Uma única passagem pelo OAuth reconecta todas as contas que você autorizar na tela da
@@ -105,6 +114,7 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
         </p>
       </Card>
 
+      {/* Lista */}
       <Card className="p-0">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -121,28 +131,79 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
         <ul className="divide-y divide-border">
           {accounts.map((a) => {
             const s = ACCOUNT_STATUS[a.status];
-            const dica = a.tokenExpired && a.status === "DISABLED"
-              ? "Desligada aqui, mas o token já venceu: precisa do OAuth."
-              : ACAO_POR_ESTADO[a.status];
+            const podeReativar = a.status === "DISABLED" && !a.tokenExpired;
             return (
-              <li key={a.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 shrink-0"
-                  checked={selected.includes(a.id)}
-                  onChange={() => toggle(a.id)}
-                />
-                <Avatar src={a.profilePicUrl} name={a.igUsername} size={36} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">@{a.igUsername}</span>
-                    <Badge tone={s.tone}>{s.label}</Badge>
-                    {a.folderName ? <Badge>{a.folderName}</Badge> : null}
+              <li key={a.id} className="px-5 py-4">
+                <div className="flex flex-wrap items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1.5 size-4 shrink-0"
+                    checked={selected.includes(a.id)}
+                    onChange={() => toggle(a.id)}
+                  />
+                  <Avatar src={a.profilePicUrl} name={a.igUsername} size={40} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">@{a.igUsername}</span>
+                      <Badge tone={s.tone} dot>
+                        {s.label}
+                      </Badge>
+                      {a.folderName ? <Badge>{a.folderName}</Badge> : null}
+                    </div>
+
+                    {/* Caixa de instrução */}
+                    <div className="mt-2 rounded-[var(--r-sm)] border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+                      {instrucao(a)}
+                    </div>
+
+                    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-faint">
+                      {a.failures24h > 0 ? (
+                        <span className="text-danger">{a.failures24h} falha(s) em 24h</span>
+                      ) : null}
+                      {a.tokenExpiresAt ? (
+                        <span>
+                          Token {a.tokenExpired ? "expirou" : "expira"}{" "}
+                          {formatDateTime(new Date(a.tokenExpiresAt), a.timezone)}
+                        </span>
+                      ) : null}
+                      {a.statusMessage ? (
+                        <span className="w-full text-faint">Meta disse: {a.statusMessage}</span>
+                      ) : null}
+                    </p>
                   </div>
-                  <p className="mt-1 text-sm text-muted">{dica}</p>
-                  {a.statusMessage ? (
-                    <p className="mt-0.5 text-xs text-muted">Meta disse: {a.statusMessage}</p>
-                  ) : null}
+
+                  {/* Ações por conta */}
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Link
+                      href="/api/meta/connect"
+                      className="rounded-[var(--r-sm)] bg-[linear-gradient(135deg,var(--accent),var(--accent-2))] px-2.5 py-1.5 text-xs font-semibold text-[var(--accent-ink)] transition hover:brightness-105"
+                    >
+                      Reconectar
+                    </Link>
+                    {podeReativar ? (
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        className="px-2.5 py-1.5 text-xs"
+                        disabled={pending}
+                        onClick={() => run(() => reactivateAccountsAction([a.id]))}
+                      >
+                        Reativar
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      className="px-2 py-1.5 text-xs"
+                      disabled={pending}
+                      title="Desconectar"
+                      onClick={() => run(() => disconnectAccountsAction([a.id]))}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                      </svg>
+                    </Button>
+                  </div>
                 </div>
               </li>
             );

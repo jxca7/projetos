@@ -13,11 +13,24 @@ export default async function ContasOffPage() {
     return <Notice tone="danger">Seu perfil no workspace não gerencia contas.</Notice>;
   }
 
-  const rows = await prisma.socialAccount.findMany({
-    where: { workspaceId: ctx.workspaceId, status: { not: "ACTIVE" } },
-    orderBy: [{ status: "asc" }, { igUsername: "asc" }],
-    include: { folder: { select: { name: true } } },
-  });
+  const umDiaAtras = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [rows, falhasPorConta] = await Promise.all([
+    prisma.socialAccount.findMany({
+      where: { workspaceId: ctx.workspaceId, status: { not: "ACTIVE" } },
+      orderBy: [{ status: "asc" }, { igUsername: "asc" }],
+      include: { folder: { select: { name: true } } },
+    }),
+    prisma.postTarget.groupBy({
+      by: ["accountId"],
+      where: {
+        post: { workspaceId: ctx.workspaceId },
+        status: "FAILED",
+        updatedAt: { gte: umDiaAtras },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const falhas = new Map(falhasPorConta.map((f) => [f.accountId, f._count._all]));
 
   const now = new Date();
   const accounts: OffAccount[] = rows.map((a) => ({
@@ -28,6 +41,9 @@ export default async function ContasOffPage() {
     statusMessage: a.statusMessage,
     folderName: a.folder?.name ?? null,
     tokenExpired: a.tokenExpiresAt !== null && a.tokenExpiresAt <= now,
+    tokenExpiresAt: a.tokenExpiresAt ? a.tokenExpiresAt.toISOString() : null,
+    failures24h: falhas.get(a.id) ?? 0,
+    timezone: ctx.timezone,
   }));
 
   const precisaLogin = accounts.filter((a) => a.status === "TOKEN_EXPIRED").length;
