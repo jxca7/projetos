@@ -22,6 +22,7 @@ export default async function PublicarPage() {
       select: {
         id: true,
         igUsername: true,
+        profilePicUrl: true,
         followersCount: true,
         quotaUsage: true,
         quotaTotal: true,

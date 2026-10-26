@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireContext } from "@/lib/session";
 import { cancelPostAction, retryPostAction } from "@/app/actions";
 import { Badge, Button, Card, Notice, SectionTitle, Stat } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
 import {
   ERROR_HINTS,
   POST_STATUS,
@@ -155,7 +156,9 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
             return (
               <Card key={t.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 gap-3">
+                    <Avatar src={t.account.profilePicUrl} name={t.account.igUsername} size={38} />
+                    <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">@{t.account.igUsername}</p>
                       <Badge tone={ts.tone}>{ts.label}</Badge>
@@ -176,6 +179,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
                         {t.captionOverride}
                       </p>
                     ) : null}
+                    </div>
                   </div>
 
                   {t.permalink ? (

@@ -12,6 +12,7 @@ import {
   renameFolderAction,
 } from "@/app/actions";
 import { Badge, Button, Card, Notice } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
 import { ACCOUNT_STATUS, formatDateTime, formatNumber } from "@/lib/labels";
 import type { AccountStatus } from "@/generated/prisma/enums";
 
@@ -24,6 +25,7 @@ export interface FolderRow {
 export interface AccountRow {
   id: string;
   igUsername: string;
+  profilePicUrl: string | null;
   status: AccountStatus;
   statusMessage: string | null;
   folderId: string | null;
@@ -324,6 +326,7 @@ export function AccountsManager({
                     checked={selected.includes(a.id)}
                     onChange={() => toggle(a.id)}
                   />
+                  <Avatar src={a.profilePicUrl} name={a.igUsername} size={38} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">@{a.igUsername}</span>

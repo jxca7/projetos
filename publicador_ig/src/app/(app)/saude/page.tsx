@@ -4,6 +4,7 @@ import { requireContext } from "@/lib/session";
 import { retryAllFailedAction } from "@/app/actions";
 import { Badge, Button, Card, Empty, Notice, SectionTitle } from "@/components/ui";
 import { ACCOUNT_STATUS, ERROR_HINTS, formatDateTime, formatNumber } from "@/lib/labels";
+import { Avatar } from "@/components/avatar";
 import { AutoRefresh } from "./auto-refresh";
 
 export const metadata = { title: "Saúde · Publicador IG" };
@@ -306,6 +307,7 @@ export default async function SaudePage() {
                 const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
                 return (
                   <li key={a.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                    <Avatar src={a.profilePicUrl} name={a.igUsername} size={34} />
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">@{a.igUsername}</span>
                       {a.folder ? (

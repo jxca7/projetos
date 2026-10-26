@@ -37,6 +37,7 @@ export default async function ContasPage({
   const accounts: AccountRow[] = rows.map((a) => ({
     id: a.id,
     igUsername: a.igUsername,
+    profilePicUrl: a.profilePicUrl,
     status: a.status,
     statusMessage: a.statusMessage,
     folderId: a.folderId,

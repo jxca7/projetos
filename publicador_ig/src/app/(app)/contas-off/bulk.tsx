@@ -8,12 +8,14 @@ import {
   reactivateAccountsAction,
 } from "@/app/actions";
 import { Badge, Button, Card, Notice } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
 import { ACCOUNT_STATUS } from "@/lib/labels";
 import type { AccountStatus } from "@/generated/prisma/enums";
 
 export interface OffAccount {
   id: string;
   igUsername: string;
+  profilePicUrl: string | null;
   status: AccountStatus;
   statusMessage: string | null;
   folderName: string | null;
@@ -130,6 +132,7 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
                   checked={selected.includes(a.id)}
                   onChange={() => toggle(a.id)}
                 />
+                <Avatar src={a.profilePicUrl} name={a.igUsername} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">@{a.igUsername}</span>

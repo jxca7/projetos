@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { createAndSchedulePost } from "@/app/actions";
 import { Badge, Button, Card, Field, Notice, SectionTitle } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
 import { CAPTION_MAX_LENGTH, HASHTAG_MAX_COUNT } from "@/lib/media/validate";
 import { formatBytes, formatDuration } from "@/lib/labels";
 
@@ -12,6 +13,7 @@ type PostType = "REEL" | "IMAGE" | "CAROUSEL" | "STORY";
 export interface AccountOption {
   id: string;
   igUsername: string;
+  profilePicUrl: string | null;
   followersCount: number | null;
   quotaUsage: number | null;
   quotaTotal: number | null;
@@ -425,6 +427,7 @@ export function Composer({
                             onChange={() => toggleAccount(a.id)}
                             className="size-4 shrink-0"
                           />
+                          <Avatar src={a.profilePicUrl} name={a.igUsername} size={32} />
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-medium">
                               @{a.igUsername}

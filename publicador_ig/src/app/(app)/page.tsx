@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireContext } from "@/lib/session";
 import { Badge, Card, Empty, Notice, SectionTitle, Stat } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
 import {
   ACCOUNT_STATUS,
   ERROR_HINTS,
@@ -217,11 +218,14 @@ export default async function DashboardPage() {
               return (
                 <Card key={a.id} className="p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">@{a.igUsername}</p>
-                      <p className="text-xs text-muted">
-                        {formatNumber(a.followersCount)} seguidores
-                      </p>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Avatar src={a.profilePicUrl} name={a.igUsername} size={38} />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">@{a.igUsername}</p>
+                        <p className="text-xs text-muted">
+                          {formatNumber(a.followersCount)} seguidores
+                        </p>
+                      </div>
                     </div>
                     <Badge tone={s.tone}>{s.label}</Badge>
                   </div>

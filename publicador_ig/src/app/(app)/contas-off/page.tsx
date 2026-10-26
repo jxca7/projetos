@@ -23,6 +23,7 @@ export default async function ContasOffPage() {
   const accounts: OffAccount[] = rows.map((a) => ({
     id: a.id,
     igUsername: a.igUsername,
+    profilePicUrl: a.profilePicUrl,
     status: a.status,
     statusMessage: a.statusMessage,
     folderName: a.folder?.name ?? null,
