@@ -3,7 +3,29 @@ import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { storage } from "@/lib/storage";
 import { prepareAccount, PrepareError } from "@/lib/story/prepare-app";
+import { acceptInvite } from "@/lib/story/accept-invite";
 import type { PrepareJobData } from "@/lib/queue";
+
+type StepOutcome = "DONE" | "FAILED" | "SKIPPED_2FA";
+
+/** Junta os desfechos dos passos (foto/bio e convite) num status só. */
+function combinar(steps: { label: string; outcome: StepOutcome; message: string }[]): {
+  status: StepOutcome;
+  error: string | null;
+} {
+  if (steps.length === 0) return { status: "DONE", error: null };
+  const status: StepOutcome = steps.some((s) => s.outcome === "FAILED")
+    ? "FAILED"
+    : steps.some((s) => s.outcome === "SKIPPED_2FA")
+      ? "SKIPPED_2FA"
+      : "DONE";
+  if (status === "DONE") return { status, error: null };
+  const error = steps
+    .filter((s) => s.outcome !== "DONE")
+    .map((s) => `${s.label}: ${s.message}`)
+    .join(" | ");
+  return { status, error: error.slice(0, 400) };
+}
 
 /** Lê a foto do perfil: do disco (driver local) ou pela URL pública. */
 async function lerImagem(imageKey: string | null, imageUrl: string | null): Promise<Buffer | null> {
@@ -31,38 +53,50 @@ export async function processPrepare(data: PrepareJobData): Promise<void> {
   });
 
   try {
-    const imageBytes = await lerImagem(target.job.imageKey, target.job.imageUrl);
+    const combo = target.comboEnc ? decryptSecret(target.comboEnc) : null;
+    const proxy = target.job.proxyEnc ? decryptSecret(target.job.proxyEnc) : null;
+    const steps: { label: string; outcome: StepOutcome; message: string }[] = [];
 
-    const sessao = await prisma.igSession.findUnique({
-      where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
-    });
-
-    const result = await prepareAccount({
-      username: target.username,
-      password: decryptSecret(target.passwordEnc),
-      combo: target.comboEnc ? decryptSecret(target.comboEnc) : null,
-      imageBytes,
-      bio: target.job.bio,
-      proxy: target.job.proxyEnc ? decryptSecret(target.job.proxyEnc) : null,
-      sessionIn: sessao ? decryptSecret(sessao.settingsEnc) : null,
-    });
-
-    if (result.sessionOut) {
-      const settingsEnc = encryptSecret(result.sessionOut);
-      await prisma.igSession.upsert({
+    // Passo 1 — foto e/ou bio (instagrapi), quando pedido.
+    if (target.job.imageKey || target.job.bio) {
+      const imageBytes = await lerImagem(target.job.imageKey, target.job.imageUrl);
+      const sessao = await prisma.igSession.findUnique({
         where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
-        create: { workspaceId: target.job.workspaceId, username: target.username, settingsEnc },
-        update: { settingsEnc },
       });
+      const result = await prepareAccount({
+        username: target.username,
+        password: decryptSecret(target.passwordEnc),
+        combo,
+        imageBytes,
+        bio: target.job.bio,
+        proxy,
+        sessionIn: sessao ? decryptSecret(sessao.settingsEnc) : null,
+      });
+      if (result.sessionOut) {
+        const settingsEnc = encryptSecret(result.sessionOut);
+        await prisma.igSession.upsert({
+          where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
+          create: { workspaceId: target.job.workspaceId, username: target.username, settingsEnc },
+          update: { settingsEnc },
+        });
+      }
+      steps.push({ label: "foto/bio", outcome: result.outcome, message: result.message });
     }
 
+    // Passo 2 — aceitar o convite do testador (navegador headless). Exige combo.
+    if (target.job.acceptInvite) {
+      if (!combo) {
+        steps.push({ label: "convite", outcome: "FAILED", message: "aceitar convite exige o combo (cookie)." });
+      } else {
+        const inv = await acceptInvite({ username: target.username, combo, proxy });
+        steps.push({ label: "convite", outcome: inv.outcome, message: inv.message });
+      }
+    }
+
+    const { status, error } = combinar(steps);
     await prisma.prepareTarget.update({
       where: { id: target.id },
-      data: {
-        status: result.outcome,
-        error: result.outcome === "DONE" ? null : result.message,
-        doneAt: result.outcome === "DONE" ? new Date() : null,
-      },
+      data: { status, error, doneAt: status === "DONE" ? new Date() : null },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erro inesperado ao preparar a conta.";

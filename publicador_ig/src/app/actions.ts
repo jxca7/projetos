@@ -1003,6 +1003,7 @@ export async function createPrepareJobAction(input: {
   mediaId?: string;
   bio?: string;
   proxy?: string;
+  acceptInvite?: boolean;
   accounts: string;
 }) {
   const ctx = await requireContext();
@@ -1014,6 +1015,15 @@ export async function createPrepareJobAction(input: {
   }
   if (contas.length > MAX_CONTAS_STORY) {
     return { ok: false as const, error: `Máximo de ${MAX_CONTAS_STORY} contas por vez.` };
+  }
+
+  const acceptInvite = Boolean(input.acceptInvite);
+  // Aceitar convite precisa do cookie — só o combo tem. Exige combo em todas.
+  if (acceptInvite && contas.some((c) => !c.combo)) {
+    return {
+      ok: false as const,
+      error: "Para aceitar o convite, todas as contas precisam vir no formato combo (com cookie).",
+    };
   }
 
   const bio = (input.bio ?? "").trim();
@@ -1033,8 +1043,8 @@ export async function createPrepareJobAction(input: {
     imageUrl = asset.publicUrl;
   }
 
-  if (!imageKey && !bio) {
-    return { ok: false as const, error: "Escolha uma foto, uma bio, ou as duas." };
+  if (!imageKey && !bio && !acceptInvite) {
+    return { ok: false as const, error: "Escolha uma foto, uma bio, e/ou aceitar o convite." };
   }
 
   const proxy = (input.proxy ?? "").trim();
@@ -1051,6 +1061,7 @@ export async function createPrepareJobAction(input: {
       imageKey,
       imageUrl,
       bio: bio || null,
+      acceptInvite,
       proxyEnc: proxy ? encryptSecret(proxy) : null,
       createdById: ctx.userId,
       targets: {

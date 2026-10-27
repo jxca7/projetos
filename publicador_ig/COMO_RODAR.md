@@ -154,6 +154,12 @@ ou só `usuario:senha`) e um proxy. Cada conta vai **uma de cada vez**, reusando
 mesma sessão salva do Story (combo com cookie entra sem 2FA). Status ao vivo por
 conta, com "tentar de novo". A bio só muda a bio (preserva nome/link/contato).
 
+Marcando **"aceitar o convite do testador também"**, o servidor abre um **navegador
+headless** (Playwright/Chromium, na imagem Docker), entra pelo **cookie do combo**
+(sem 2FA), vai em `instagram.com/accounts/manage_access/` e clica "Aceitar". Essa
+ação **exige o combo** (precisa do cookie) e **proxy é recomendado** — é a parte
+que sai do IP do servidor, mais sensível a bloqueio.
+
 ## Comandos úteis
 
 ```bash

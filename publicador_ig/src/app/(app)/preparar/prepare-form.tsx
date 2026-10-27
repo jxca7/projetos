@@ -48,6 +48,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [enviandoImg, setEnviandoImg] = useState(false);
   const [bio, setBio] = useState("");
+  const [acceptInvite, setAcceptInvite] = useState(false);
   const [proxy, setProxy] = useState("");
   const [accounts, setAccounts] = useState("");
   const [pending, startTransition] = useTransition();
@@ -94,8 +95,8 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   }
 
   function preparar() {
-    if (!mediaId && !bio.trim()) {
-      setMsg({ tone: "warn", text: "Escolha uma foto, uma bio, ou as duas." });
+    if (!mediaId && !bio.trim() && !acceptInvite) {
+      setMsg({ tone: "warn", text: "Escolha uma foto, uma bio, e/ou aceitar o convite." });
       return;
     }
     if (!accounts.trim()) {
@@ -104,7 +105,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
     }
     setMsg(null);
     startTransition(async () => {
-      const r = await createPrepareJobAction({ mediaId: mediaId ?? undefined, bio, proxy, accounts });
+      const r = await createPrepareJobAction({ mediaId: mediaId ?? undefined, bio, proxy, acceptInvite, accounts });
       if (!r.ok) {
         setMsg({ tone: "danger", text: r.error });
         return;
@@ -182,6 +183,20 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
             <span className="block text-right text-[11px] text-faint">{bio.length}/150</span>
           </div>
         </div>
+
+        <label className="flex items-start gap-2 rounded-[var(--r-sm)] border border-border bg-surface-2 px-3 py-2">
+          <input
+            type="checkbox"
+            checked={acceptInvite}
+            onChange={(e) => setAcceptInvite(e.target.checked)}
+            className="mt-0.5 size-4"
+          />
+          <span className="text-xs">
+            <strong>Aceitar o convite do testador também</strong> — abre um navegador no servidor e
+            clica em “Aceitar”. Exige o <strong>combo</strong> (com cookie) em todas as contas. Proxy
+            recomendado.
+          </span>
+        </label>
 
         <label className="block space-y-1">
           <span className="text-xs font-medium text-muted">Proxy (recomendado)</span>

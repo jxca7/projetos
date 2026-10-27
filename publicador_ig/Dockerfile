@@ -16,10 +16,16 @@ RUN python3 -m venv /opt/ig-dl \
   && /opt/ig-dl/bin/pip install --no-cache-dir --upgrade pip \
   && /opt/ig-dl/bin/pip install --no-cache-dir \
        "curl_cffi>=0.7" "requests[socks]>=2.28" "instagrapi==3.0.25" "Pillow>=10"
+# Playwright + Chromium: navegador headless no servidor para aceitar o convite do
+# testador (não existe API para isso). Baixa o Chromium e suas libs de sistema.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+RUN /opt/ig-dl/bin/pip install --no-cache-dir playwright \
+  && /opt/ig-dl/bin/playwright install --with-deps chromium
 # O worker encontra o interpretador e os scripts por estas variáveis.
 ENV IG_DL_PYTHON=/opt/ig-dl/bin/python3 \
     IG_DL_SCRIPT=/app/vendor/ig-downloader/reels.py \
-    IG_STORY_SCRIPT=/app/vendor/ig-story/postar_story.py
+    IG_STORY_SCRIPT=/app/vendor/ig-story/postar_story.py \
+    IG_ACCEPT_SCRIPT=/app/vendor/ig-story/aceitar_convite.py
 # Fixa a MESMA versão do pnpm que gerou o lockfile. Sem isto, o corepack baixa
 # a versão que vier por padrão na imagem, que pode aplicar a trava de idade
 # mínima de pacote (minimumReleaseAge) e recusar um lockfile legítimo.

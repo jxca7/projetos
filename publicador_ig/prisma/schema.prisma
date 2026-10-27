@@ -650,8 +650,10 @@ model PrepareJob {
   /// Foto do perfil (guardada no storage). Opcional.
   imageKey    String?
   imageUrl    String?
-  /// Bio a aplicar. Opcional. (Pelo menos uma das duas é obrigatória.)
+  /// Bio a aplicar. Opcional. (Pelo menos uma de foto/bio/convite é obrigatória.)
   bio         String?
+  /// Aceitar também o convite do testador (navegador headless; exige combo).
+  acceptInvite Boolean @default(false)
   proxyEnc    String?
 
   createdById String?
