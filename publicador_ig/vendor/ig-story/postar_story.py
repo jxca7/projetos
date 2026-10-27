@@ -325,11 +325,60 @@ def montar_story(imagem, rotulo):
     return destino, area
 
 
-def novo_cliente(proxy):
+def ler_ua_techdata(arquivo):
+    """Do combo 'usuario:senha | UserAgent | TechData | Cookie', devolve (user_agent, techdata).
+    Pela posição (campo 2 = UA, campo 3 = techdata), checando para não pegar o cookie."""
+    try:
+        texto = arquivo.read_text(encoding="utf-8-sig").strip()
+    except Exception:
+        return (None, None)
+    if "|" not in texto:
+        return (None, None)
+    campos = [c.strip() for c in texto.split("|")]
+
+    def eh_cookie(c):
+        return "sessionid=" in c.lower()
+
+    ua = campos[1] if len(campos) >= 2 and campos[1] and not eh_cookie(campos[1]) else None
+    tech = campos[2] if len(campos) >= 3 and campos[2] and not eh_cookie(campos[2]) else None
+    return (ua, tech)
+
+
+def aplicar_ua_techdata(cl, user_agent, techdata):
+    """Aplica o user agent (o instagrapi deriva o device dele) e, se der, o techdata.
+    Best-effort: o que não der para aplicar é ignorado, sem quebrar o login."""
+    if user_agent:
+        try:
+            cl.set_user_agent(user_agent)
+        except Exception:
+            pass
+    if techdata:
+        try:
+            s = cl.get_settings()
+            t = techdata.strip()
+            if t.startswith("{"):
+                extra = json.loads(t)
+                if isinstance(extra, dict):
+                    s = {**s, **extra}
+            else:
+                m = re.search(r"android-[0-9a-f]{16}", t, re.IGNORECASE)
+                if m:
+                    uuids = dict(s.get("uuids") or {})
+                    uuids["android_device_id"] = m.group(0)
+                    s["uuids"] = uuids
+            cl.set_settings(s)
+        except Exception:
+            pass
+
+
+def novo_cliente(proxy, user_agent=None, techdata=None):
     cl = Client()
     cl.delay_range = [2, 5]
     if proxy:
         cl.set_proxy(proxy)
+    # Aplica a "cara" do aparelho (UA + techdata do combo) antes do login, para o
+    # story ser aceito. Numa sessão já salva, o load_settings depois prevalece.
+    aplicar_ua_techdata(cl, user_agent, techdata)
     # NÃO pergunta o código na tela: se pedir verificação, falha na hora e o script pula a conta
     cl.challenge_code_handler = lambda username, choice: ""
     cl.change_password_handler = lambda username: ""
@@ -363,7 +412,8 @@ def ler_todos_cookies(arquivo):
 
 
 def login_por_cookie(nome, arquivo_cookies, proxy, arquivo_sessao):
-    cl = novo_cliente(proxy)
+    ua, techdata = ler_ua_techdata(arquivo_cookies)
+    cl = novo_cliente(proxy, ua, techdata)
     if arquivo_sessao.exists():
         cl.load_settings(arquivo_sessao)
     cl.login_by_sessionid(ler_sessionid(arquivo_cookies))

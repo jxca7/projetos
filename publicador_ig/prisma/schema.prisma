@@ -84,6 +84,7 @@ model Workspace {
   mediaImports    MediaImport[]
   instagramCookie InstagramCookie?
   storyAppJobs    StoryAppJob[]
+  igSessions      IgSession[]
   subscription   Subscription?
 }
 
@@ -596,6 +597,9 @@ model StoryAppTarget {
 
   username    String
   passwordEnc String
+  /// Linha de combo completa (usuario:senha | useragent | techdata | cookie), cifrada.
+  /// Quando presente, o login entra pelo cookie (sem 2FA) com a identidade do aparelho.
+  comboEnc    String?
 
   status    StoryAppStatus @default(QUEUED)
   error     String?
@@ -616,4 +620,22 @@ enum StoryAppStatus {
   DONE
   FAILED
   SKIPPED_2FA
+}
+
+/// Sessão persistida do instagrapi por conta (device + cookies), cifrada.
+/// Reusar a mesma sessão em cada run evita logar de novo e dispara 2FA só na
+/// 1ª vez — é o que mantém "uma conta = uma sessão isolada".
+model IgSession {
+  id          String @id @default(cuid())
+  workspaceId String
+  username    String
+
+  settingsEnc String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, username])
 }

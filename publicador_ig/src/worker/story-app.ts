@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
-import { decryptSecret } from "@/lib/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { storage } from "@/lib/storage";
 import { postStoryApp, StoryPostError } from "@/lib/story/post-app";
 import type { StoryAppJobData } from "@/lib/queue";
@@ -31,15 +31,33 @@ export async function processStoryApp(data: StoryAppJobData): Promise<void> {
 
   try {
     const imageBytes = await lerImagem(target.job.imageKey, target.job.imageUrl);
+
+    // Sessão salva desta conta (se houver), para reusar e não logar de novo.
+    const sessao = await prisma.igSession.findUnique({
+      where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
+    });
+
     const result = await postStoryApp({
       username: target.username,
       password: decryptSecret(target.passwordEnc),
+      combo: target.comboEnc ? decryptSecret(target.comboEnc) : null,
       imageBytes,
       link: target.job.link,
       linkLabel: target.job.linkLabel,
       highlight: target.job.highlight,
       proxy: target.job.proxyEnc ? decryptSecret(target.job.proxyEnc) : null,
+      sessionIn: sessao ? decryptSecret(sessao.settingsEnc) : null,
     });
+
+    // Persiste a sessão atualizada (device + cookies) para os próximos runs.
+    if (result.sessionOut) {
+      const settingsEnc = encryptSecret(result.sessionOut);
+      await prisma.igSession.upsert({
+        where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
+        create: { workspaceId: target.job.workspaceId, username: target.username, settingsEnc },
+        update: { settingsEnc },
+      });
+    }
 
     await prisma.storyAppTarget.update({
       where: { id: target.id },

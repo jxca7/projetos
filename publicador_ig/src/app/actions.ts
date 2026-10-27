@@ -864,19 +864,26 @@ export async function clearIgCookiesAction() {
 
 const MAX_CONTAS_STORY = 100;
 
-/** Lê o textarea "usuario:senha" (uma por linha), ignorando vazios e duplicatas. */
-function parseContas(texto: string): { usuario: string; senha: string }[] {
+/**
+ * Lê o textarea de contas. Cada linha é `usuario:senha` OU o combo completo
+ * `usuario:senha | useragent | techdata | cookie`. No combo, o login entra pelo
+ * cookie (sem 2FA) e guarda a linha inteira; a senha fica de reserva.
+ */
+function parseAccounts(texto: string): { usuario: string; senha: string; combo: string | null }[] {
   const vistos = new Set<string>();
-  const contas: { usuario: string; senha: string }[] = [];
+  const contas: { usuario: string; senha: string; combo: string | null }[] = [];
   for (const linha of (texto ?? "").split("\n")) {
     const l = linha.trim();
-    if (!l || l.startsWith("#") || !l.includes(":")) continue;
-    const i = l.indexOf(":");
-    const usuario = l.slice(0, i).trim().replace(/^@/, "").toLowerCase();
-    const senha = l.slice(i + 1).trim();
+    if (!l || l.startsWith("#")) continue;
+    // O 1º campo (antes do 1º "|") é usuario:senha.
+    const campo0 = (l.includes("|") ? l.slice(0, l.indexOf("|")) : l).trim();
+    if (!campo0.includes(":")) continue;
+    const i = campo0.indexOf(":");
+    const usuario = campo0.slice(0, i).trim().replace(/^@/, "").toLowerCase();
+    const senha = campo0.slice(i + 1).trim();
     if (!usuario || !senha || vistos.has(usuario)) continue;
     vistos.add(usuario);
-    contas.push({ usuario, senha });
+    contas.push({ usuario, senha, combo: l.includes("|") ? l : null });
   }
   return contas;
 }
@@ -892,9 +899,9 @@ export async function createStoryAppJobAction(input: {
   const ctx = await requireContext();
   if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para postar." };
 
-  const contas = parseContas(input.accounts);
+  const contas = parseAccounts(input.accounts);
   if (contas.length === 0) {
-    return { ok: false as const, error: "Informe ao menos uma conta no formato usuario:senha." };
+    return { ok: false as const, error: "Informe ao menos uma conta (usuario:senha ou a linha de combo)." };
   }
   if (contas.length > MAX_CONTAS_STORY) {
     return { ok: false as const, error: `Máximo de ${MAX_CONTAS_STORY} contas por vez.` };
@@ -936,6 +943,7 @@ export async function createStoryAppJobAction(input: {
         create: contas.map((c) => ({
           username: c.usuario,
           passwordEnc: encryptSecret(c.senha),
+          comboEnc: c.combo ? encryptSecret(c.combo) : null,
         })),
       },
     },

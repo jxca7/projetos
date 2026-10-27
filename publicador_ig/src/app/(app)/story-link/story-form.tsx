@@ -218,16 +218,19 @@ export function StoryForm({ initialJobs }: { initialJobs: StoryJob[] }) {
         </div>
 
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-muted">Contas (uma por linha, usuario:senha)</span>
+          <span className="text-xs font-medium text-muted">
+            Contas (uma por linha) — <code>usuario:senha</code> ou o combo completo
+          </span>
           <textarea
             value={accounts}
             onChange={(e) => setAccounts(e.target.value)}
             rows={4}
-            placeholder={"conta1:senha1\nconta2:senha2"}
+            placeholder={"usuario:senha\nusuario:senha | useragent | techdata | cookie"}
             className="w-full font-mono text-xs"
           />
           <span className="block text-[11px] text-faint">
-            Contas com 2FA são puladas (resolva no app). Vão uma de cada vez, espaçadas.
+            Com o combo (cookie + aparelho), entra sem 2FA e a sessão fica salva por conta. Só
+            usuario:senha também funciona (loga por senha). Uma de cada vez, espaçadas; 2FA é pulado.
           </span>
         </label>
 

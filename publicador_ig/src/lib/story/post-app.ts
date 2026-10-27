@@ -21,6 +21,8 @@ export interface StoryResult {
   outcome: StoryOutcome;
   igStoryId: string | null;
   message: string;
+  /** Sessão do instagrapi após o run (JSON), para persistir e reusar. null se não gerou. */
+  sessionOut: string | null;
   stdout: string;
   stderr: string;
 }
@@ -28,6 +30,12 @@ export interface StoryResult {
 export interface StoryInput {
   username: string;
   password: string;
+  /**
+   * Linha de combo completa: `usuario:senha | useragent | techdata | cookie`.
+   * Quando presente, o login entra pelo COOKIE (sem 2FA), com a identidade do
+   * aparelho (useragent/techdata). A senha fica de reserva.
+   */
+  combo?: string | null;
   imageBytes: Buffer;
   link?: string | null;
   /** Texto que aparece na figurinha de link. */
@@ -36,6 +44,8 @@ export interface StoryInput {
   highlight?: string | null;
   /** Proxy opcional: host:porta, host:porta:usuario:senha ou http://user:senha@host:porta */
   proxy?: string | null;
+  /** Sessão salva do instagrapi desta conta (JSON), para reusar e evitar 2FA. */
+  sessionIn?: string | null;
 }
 
 /**
@@ -55,6 +65,10 @@ export async function postStoryApp(input: StoryInput): Promise<StoryResult> {
     );
   }
 
+  const username = input.username.replace(/^@/, "");
+  const combo = input.combo?.trim();
+  const cookieMode = Boolean(combo);
+
   // Arquivos que o script lê da própria pasta.
   await fs.writeFile(path.join(dir, "story.jpg"), input.imageBytes);
   await fs.writeFile(
@@ -67,23 +81,48 @@ export async function postStoryApp(input: StoryInput): Promise<StoryResult> {
   if (input.proxy?.trim()) {
     await fs.writeFile(path.join(dir, "proxy.txt"), input.proxy.trim(), { mode: 0o600 });
   }
-  // Uma conta por run: usuário:senha. mode 0600.
-  await fs.writeFile(
-    path.join(dir, "contas.txt"),
-    `${input.username.replace(/^@/, "")}:${input.password}\n`,
-    { mode: 0o600 },
-  );
+
+  // Modo COOKIE (combo): a linha inteira vira um arquivo em cookies/<usuario>.txt —
+  // o script entra pelo cookie e usa o usuario:senha de dentro dela como reserva.
+  // Modo SENHA: só usuario:senha em contas.txt.
+  if (cookieMode) {
+    const cookiesDir = path.join(dir, "cookies");
+    await fs.mkdir(cookiesDir, { recursive: true });
+    await fs.writeFile(path.join(cookiesDir, `${username}.txt`), combo + "\n", { mode: 0o600 });
+  } else {
+    await fs.writeFile(path.join(dir, "contas.txt"), `${username}:${input.password}\n`, { mode: 0o600 });
+  }
+
+  // Sessão persistida: restaura antes do run (evita logar de novo → sem 2FA).
+  const sessoesDir = path.join(dir, "sessoes");
+  await fs.mkdir(sessoesDir, { recursive: true });
+  const sessaoCookie = path.join(sessoesDir, `${username}.json`);
+  const sessaoSenha = path.join(sessoesDir, `senha_${username}.json`);
+  if (input.sessionIn?.trim()) {
+    await fs.writeFile(cookieMode ? sessaoCookie : sessaoSenha, input.sessionIn, { mode: 0o600 });
+  }
 
   try {
     const { stdout, stderr } = await executar([script], dir);
-    return interpretar(input.username, stdout, stderr);
+    const base = interpretar(input.username, stdout, stderr);
+    // Lê a sessão que o run deixou (cookie ou senha), para persistir.
+    let sessionOut: string | null = null;
+    for (const p of [sessaoCookie, sessaoSenha]) {
+      try {
+        sessionOut = await fs.readFile(p, "utf8");
+        break;
+      } catch {
+        /* não existe */
+      }
+    }
+    return { ...base, sessionOut };
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
 
-/** Lê a saída do script e decide o desfecho da conta. */
-function interpretar(username: string, stdout: string, stderr: string): StoryResult {
+/** Lê a saída do script e decide o desfecho da conta (sem a sessão, que o chamador anexa). */
+function interpretar(username: string, stdout: string, stderr: string): Omit<StoryResult, "sessionOut"> {
   const out = stdout + "\n" + stderr;
   const idMatch = out.match(/id\s+(\d{3,})/i);
   const igStoryId = idMatch ? idMatch[1] : null;
