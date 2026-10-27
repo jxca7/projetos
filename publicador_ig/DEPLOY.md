@@ -28,8 +28,9 @@ docker compose up -d --build
 ```
 
 Sobe banco, fila, painel (porta 3000) e worker. As migrações rodam sozinhas antes.
-A imagem já traz `ffmpeg`, `python3` e as libs do downloader de Reels
-(`curl_cffi`, `requests`), usadas na importação da Biblioteca.
+A imagem já traz `ffmpeg`, `python3` e as libs dos motores em `vendor/`
+(`curl_cffi`/`requests` para baixar Reels; `instagrapi`/`Pillow` para postar
+story com link e destaque).
 
 > Ao **atualizar** o código, rode de novo `docker compose up -d --build`: ele
 > reconstrói a imagem e aplica as migrações pendentes antes de o painel subir.

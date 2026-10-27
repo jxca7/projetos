@@ -6,16 +6,19 @@ import {
   QUEUE_INSIGHTS,
   QUEUE_MAINTENANCE,
   QUEUE_PUBLISH,
+  QUEUE_STORY_APP,
   maintenanceQueue,
   type ImportJobData,
   type InsightsJobData,
   type MaintenanceJobData,
   type PublishJobData,
+  type StoryAppJobData,
 } from "@/lib/queue";
 import { applyOutcome, processPublishTarget } from "./publish";
 import { processInsights } from "./insights";
 import { processMaintenance } from "./maintenance";
 import { processImport } from "./import";
+import { processStoryApp } from "./story-app";
 import { env } from "@/lib/env";
 
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? "8");
@@ -65,6 +68,14 @@ async function main() {
     { connection: redis(), concurrency: 2, limiter: { max: 6, duration: 60_000 } },
   );
 
+  // Postagem de story pelo app: uma conta por vez e espaçada, para não chamar
+  // atenção (e porque o motor usa um arquivo temporário fixo por run).
+  const storyAppWorker = new Worker<StoryAppJobData>(
+    QUEUE_STORY_APP,
+    async (job) => processStoryApp(job.data),
+    { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
+  );
+
   publishWorker.on("completed", (job, result) => {
     const r = result as { kind: string; reason?: string; delayMs?: number } | undefined;
     if (r?.kind === "retry") {
@@ -86,6 +97,12 @@ async function main() {
   });
   importWorker.on("failed", (job, err) => {
     log(`importação ${job?.data.importId} falhou: ${err.message}`);
+  });
+  storyAppWorker.on("completed", (job) => {
+    log(`story ${job.data.targetId}: processado`);
+  });
+  storyAppWorker.on("failed", (job, err) => {
+    log(`story ${job?.data.targetId} falhou: ${err.message}`);
   });
 
   // Rotinas periodicas.
@@ -113,6 +130,7 @@ async function main() {
       insightsWorker.close(),
       maintenanceWorker.close(),
       importWorker.close(),
+      storyAppWorker.close(),
     ]);
     process.exit(0);
   };

@@ -83,6 +83,7 @@ model Workspace {
   mediaAssets    MediaAsset[]
   mediaImports    MediaImport[]
   instagramCookie InstagramCookie?
+  storyAppJobs    StoryAppJob[]
   subscription   Subscription?
 }
 
@@ -560,4 +561,59 @@ model InstagramCookie {
   updatedAt   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// Postagem de story "pelo app" (instagrapi): o que a API oficial não faz —
+/// figurinha de link e adição ao destaque. Uma imagem, enviada a várias contas.
+model StoryAppJob {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  /// Imagem do story (guardada no storage, como os demais assets).
+  imageKey    String
+  imageUrl    String
+  /// Link da figurinha e o texto que aparece nela (rótulo).
+  link        String?
+  linkLabel   String?
+  /// Nome do destaque onde o story entra (cria se não existir). Vazio = não destaca.
+  highlight   String?
+  /// Proxy opcional (cifrado; pode conter usuário:senha). Recomendado para o story.
+  proxyEnc    String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   StoryAppTarget[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Uma conta de destino do story. A senha fica cifrada (AES-256-GCM), como os tokens.
+model StoryAppTarget {
+  id       String @id @default(cuid())
+  jobId    String
+
+  username    String
+  passwordEnc String
+
+  status    StoryAppStatus @default(QUEUED)
+  error     String?
+  igStoryId String?
+  postedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job StoryAppJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+enum StoryAppStatus {
+  QUEUED
+  POSTING
+  DONE
+  FAILED
+  SKIPPED_2FA
 }

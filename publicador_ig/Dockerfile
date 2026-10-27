@@ -3,20 +3,23 @@
 FROM node:22-slim AS base
 # ffprobe/ffmpeg validam a mídia no upload e juntam as faixas dos Reels baixados.
 # openssl é usado pela geração de segredos e pelo Prisma.
-# python3 roda o downloader de Reels (vendor/ig-downloader/reels.py).
+# python3 roda os motores em vendor/ (downloader de Reels e postador de story).
+# fonts-dejavu-core: fonte que o postador de story usa para desenhar a figurinha.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-       ffmpeg openssl ca-certificates python3 python3-venv \
+       ffmpeg openssl ca-certificates python3 python3-venv fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
-# Dependências Python do downloader, num venv isolado (evita o PEP 668 do Debian).
-# curl_cffi conecta com a "cara" do Chrome, que é o que o Instagram exige hoje
-# para entregar a mídia — o mesmo que qualquer baixador de Reels faz.
+# Dependências Python, num venv isolado (evita o PEP 668 do Debian).
+# - curl_cffi conecta com a "cara" do Chrome (exigência do Instagram para a mídia).
+# - instagrapi + Pillow postam o story com link e destaque pela API do app.
 RUN python3 -m venv /opt/ig-dl \
   && /opt/ig-dl/bin/pip install --no-cache-dir --upgrade pip \
-  && /opt/ig-dl/bin/pip install --no-cache-dir "curl_cffi>=0.7" "requests[socks]>=2.28"
-# O worker encontra o interpretador e o script por estas variáveis.
+  && /opt/ig-dl/bin/pip install --no-cache-dir \
+       "curl_cffi>=0.7" "requests[socks]>=2.28" "instagrapi==3.0.25" "Pillow>=10"
+# O worker encontra o interpretador e os scripts por estas variáveis.
 ENV IG_DL_PYTHON=/opt/ig-dl/bin/python3 \
-    IG_DL_SCRIPT=/app/vendor/ig-downloader/reels.py
+    IG_DL_SCRIPT=/app/vendor/ig-downloader/reels.py \
+    IG_STORY_SCRIPT=/app/vendor/ig-story/postar_story.py
 # Fixa a MESMA versão do pnpm que gerou o lockfile. Sem isto, o corepack baixa
 # a versão que vier por padrão na imagem, que pode aplicar a trava de idade
 # mínima de pacote (minimumReleaseAge) e recusar um lockfile legítimo.

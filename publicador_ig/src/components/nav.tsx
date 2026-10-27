@@ -86,6 +86,14 @@ function NavIcon({ href, className }: { href: string; className?: string }) {
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
       );
+    case "/story-link":
+      return (
+        <svg {...common}>
+          <rect x="4" y="2" width="16" height="20" rx="4" />
+          <path d="M10.5 12.5a2.5 2.5 0 0 1 0-3l1-1a2.5 2.5 0 0 1 3.5 3.5l-.7.7" />
+          <path d="M13.5 11.5a2.5 2.5 0 0 1 0 3l-1 1a2.5 2.5 0 0 1-3.5-3.5l.7-.7" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

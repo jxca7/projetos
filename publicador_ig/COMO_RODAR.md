@@ -121,6 +121,30 @@ usam outro caminho). Baixe só conteúdo que você tem direito de usar.
 Em desenvolvimento, tenha `python3`, `ffmpeg` e as libs do downloader
 (`pip install curl_cffi "requests[socks]"`) no PATH. No Docker já vêm na imagem.
 
+## Story com link e destaque (pelo app)
+
+A API oficial da Meta **não** coloca figurinha de link no story nem adiciona ao
+destaque. A tela **Story + link** faz isso pela API do app (motor
+`vendor/ig-story/postar_story.py`, com instagrapi), logando com **usuário e senha
+de cada conta**:
+
+1. Escolha a imagem (JPG/PNG).
+2. (Opcional) o **link** da figurinha e o texto dela.
+3. (Opcional) o nome do **destaque** (cria se não existir).
+4. (Opcional, recomendado) o **proxy** (`host:porta`, `host:porta:user:senha` ou
+   `http://user:senha@host:porta`) — de preferência do mesmo país das contas.
+5. Cole as contas em `usuario:senha`, uma por linha.
+6. **Postar story**.
+
+As senhas ficam **cifradas** no banco (AES-256-GCM). O worker posta **uma conta
+por vez, espaçada**. Contas com 2FA/verificação são puladas (resolva no app e use
+*Tentar de novo*). Em dev, precisa de `python3` + `pip install instagrapi Pillow`.
+
+> Aviso honesto: isso roda sobre contas logadas por senha, fora da API oficial —
+> use só nas suas contas e sem exagerar no volume, senão o Instagram limita a
+> conta. Não misture essa automação com volume alto nas contas que publicam pela
+> API oficial.
+
 ## Comandos úteis
 
 ```bash

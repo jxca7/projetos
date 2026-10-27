@@ -5,6 +5,7 @@ export const QUEUE_PUBLISH = "publish";
 export const QUEUE_INSIGHTS = "insights";
 export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_IMPORT = "import";
+export const QUEUE_STORY_APP = "story-app";
 
 export interface PublishJobData {
   targetId: string;
@@ -26,11 +27,16 @@ export interface ImportJobData {
   importId: string;
 }
 
+export interface StoryAppJobData {
+  targetId: string;
+}
+
 const globalForQueues = globalThis as unknown as {
   publishQueue?: Queue<PublishJobData>;
   insightsQueue?: Queue<InsightsJobData>;
   maintenanceQueue?: Queue<MaintenanceJobData>;
   importQueue?: Queue<ImportJobData>;
+  storyAppQueue?: Queue<StoryAppJobData>;
 };
 
 /**
@@ -156,6 +162,39 @@ export async function enqueueImport(importId: string): Promise<void> {
       jobId,
       attempts: 3,
       backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: { age: 24 * 3600, count: 1_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
+    },
+  );
+}
+
+export function storyAppQueue(): Queue<StoryAppJobData> {
+  if (!globalForQueues.storyAppQueue) {
+    globalForQueues.storyAppQueue = new Queue<StoryAppJobData>(QUEUE_STORY_APP, {
+      connection: redis(),
+    });
+  }
+  return globalForQueues.storyAppQueue;
+}
+
+/** Enfileira a postagem de um story numa conta. Um job por target. */
+export async function enqueueStoryApp(targetId: string): Promise<void> {
+  const q = storyAppQueue();
+  const jobId = `story-${targetId}`;
+  const anterior = await q.getJob(jobId);
+  if (anterior) {
+    try {
+      await anterior.remove();
+    } catch {
+      /* em execução: o processador checa o status no banco */
+    }
+  }
+  await q.add(
+    "post-story",
+    { targetId },
+    {
+      jobId,
+      attempts: 1, // login/post não deve repetir sozinho (evita lockout)
       removeOnComplete: { age: 24 * 3600, count: 1_000 },
       removeOnFail: { age: 7 * 24 * 3600 },
     },

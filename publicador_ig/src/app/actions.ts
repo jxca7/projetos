@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
-import { maintenanceQueue, enqueueImport } from "@/lib/queue";
+import { maintenanceQueue, enqueueImport, enqueueStoryApp } from "@/lib/queue";
 import { isInstagramUrl, isInstagramHandle, normalizeHandle } from "@/lib/media/download";
 
 /** Garante que o recurso pertence ao workspace do usuário logado. */
@@ -856,4 +856,133 @@ export async function clearIgCookiesAction() {
   await prisma.instagramCookie.deleteMany({ where: { workspaceId: ctx.workspaceId } });
   revalidatePath("/biblioteca");
   return { ok: true as const };
+}
+
+// ---------------------------------------------------------------------------
+// Story com link e destaque (pelo app — instagrapi, login por usuário e senha)
+// ---------------------------------------------------------------------------
+
+const MAX_CONTAS_STORY = 100;
+
+/** Lê o textarea "usuario:senha" (uma por linha), ignorando vazios e duplicatas. */
+function parseContas(texto: string): { usuario: string; senha: string }[] {
+  const vistos = new Set<string>();
+  const contas: { usuario: string; senha: string }[] = [];
+  for (const linha of (texto ?? "").split("\n")) {
+    const l = linha.trim();
+    if (!l || l.startsWith("#") || !l.includes(":")) continue;
+    const i = l.indexOf(":");
+    const usuario = l.slice(0, i).trim().replace(/^@/, "").toLowerCase();
+    const senha = l.slice(i + 1).trim();
+    if (!usuario || !senha || vistos.has(usuario)) continue;
+    vistos.add(usuario);
+    contas.push({ usuario, senha });
+  }
+  return contas;
+}
+
+export async function createStoryAppJobAction(input: {
+  mediaId: string;
+  link?: string;
+  linkLabel?: string;
+  highlight?: string;
+  proxy?: string;
+  accounts: string;
+}) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para postar." };
+
+  const contas = parseContas(input.accounts);
+  if (contas.length === 0) {
+    return { ok: false as const, error: "Informe ao menos uma conta no formato usuario:senha." };
+  }
+  if (contas.length > MAX_CONTAS_STORY) {
+    return { ok: false as const, error: `Máximo de ${MAX_CONTAS_STORY} contas por vez.` };
+  }
+
+  const link = (input.link ?? "").trim();
+  if (link && !/^https?:\/\//i.test(link)) {
+    return { ok: false as const, error: "O link precisa começar com http:// ou https://" };
+  }
+
+  // Proxy opcional: host:porta, host:porta:usuario:senha ou http://user:senha@host:porta
+  const proxy = (input.proxy ?? "").trim();
+  if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy) && !/^[^\s:]+:\d+(:[^\s:]+:[^\s]+)?$/.test(proxy)) {
+    return {
+      ok: false as const,
+      error: "Proxy inválido. Use host:porta, host:porta:usuario:senha ou http://user:senha@host:porta",
+    };
+  }
+
+  const asset = await prisma.mediaAsset.findFirst({
+    where: { id: input.mediaId, workspaceId: ctx.workspaceId },
+  });
+  if (!asset) return { ok: false as const, error: "Imagem não encontrada nesta conta." };
+  if (asset.kind !== "IMAGE") {
+    return { ok: false as const, error: "O story aqui usa uma imagem (JPG/PNG)." };
+  }
+
+  const job = await prisma.storyAppJob.create({
+    data: {
+      workspaceId: ctx.workspaceId,
+      imageKey: asset.storageKey,
+      imageUrl: asset.publicUrl,
+      link: link || null,
+      linkLabel: (input.linkLabel ?? "").trim() || null,
+      highlight: (input.highlight ?? "").trim() || null,
+      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      createdById: ctx.userId,
+      targets: {
+        create: contas.map((c) => ({
+          username: c.usuario,
+          passwordEnc: encryptSecret(c.senha),
+        })),
+      },
+    },
+    include: { targets: { select: { id: true } } },
+  });
+
+  for (const t of job.targets) await enqueueStoryApp(t.id);
+
+  revalidatePath("/story-link");
+  return { ok: true as const, jobId: job.id, contas: contas.length };
+}
+
+/** Reenfileira o story de uma conta que falhou. */
+export async function retryStoryTargetAction(targetId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const target = await prisma.storyAppTarget.findFirst({
+    where: { id: targetId, job: { workspaceId: ctx.workspaceId } },
+  });
+  if (!target) return { ok: false as const, error: "Não encontrado." };
+
+  await prisma.storyAppTarget.update({
+    where: { id: target.id },
+    data: { status: "QUEUED", error: null },
+  });
+  await enqueueStoryApp(target.id);
+  revalidatePath("/story-link");
+  return { ok: true as const };
+}
+
+/** Apaga os jobs de story já finalizados (e, com eles, as senhas cifradas). */
+export async function clearStoryJobsAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  // Só remove jobs sem nenhuma conta ainda em andamento.
+  const jobs = await prisma.storyAppJob.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    include: { targets: { select: { status: true } } },
+  });
+  const finalizados = jobs
+    .filter((j) => j.targets.every((t) => t.status === "DONE" || t.status === "FAILED" || t.status === "SKIPPED_2FA"))
+    .map((j) => j.id);
+  if (finalizados.length) {
+    await prisma.storyAppJob.deleteMany({ where: { id: { in: finalizados } } });
+  }
+  revalidatePath("/story-link");
+  return { ok: true as const, removed: finalizados.length };
 }
