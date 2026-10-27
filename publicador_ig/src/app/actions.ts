@@ -8,7 +8,7 @@ import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
 import { maintenanceQueue, enqueueImport } from "@/lib/queue";
-import { isInstagramUrl } from "@/lib/media/download";
+import { isInstagramUrl, isInstagramHandle, normalizeHandle } from "@/lib/media/download";
 
 /** Garante que o recurso pertence ao workspace do usuário logado. */
 async function ownedPost(postId: string, workspaceId: string) {
@@ -676,10 +676,21 @@ export async function removeDuplicateMediaAction() {
 
 const MAX_URLS_POR_VEZ = 50;
 
+/** O downloader precisa do login da conta; sem cookie nada baixa. */
+async function exigirCookie(workspaceId: string): Promise<string | null> {
+  const jar = await prisma.instagramCookie.findUnique({ where: { workspaceId } });
+  return jar
+    ? null
+    : "Configure o cookie da conta do Instagram (botão \"Configurar cookie\") antes de importar.";
+}
+
 /** Enfileira o download de um ou vários Reels/posts do Instagram. */
 export async function importReelsAction(input: { urls: string[] }) {
   const ctx = await requireContext();
   if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para importar mídia." };
+
+  const semCookie = await exigirCookie(ctx.workspaceId);
+  if (semCookie) return { ok: false as const, error: semCookie };
 
   // Normaliza, remove vazios e duplicatas, e separa o que não é link do Instagram.
   const brutos = (input.urls ?? [])
@@ -710,6 +721,7 @@ export async function importReelsAction(input: { urls: string[] }) {
     const imp = await prisma.mediaImport.create({
       data: {
         workspaceId: ctx.workspaceId,
+        mode: "LINK",
         sourceUrl: url,
         status: "QUEUED",
         createdById: ctx.userId,
@@ -721,6 +733,63 @@ export async function importReelsAction(input: { urls: string[] }) {
 
   revalidatePath("/biblioteca");
   return { ok: true as const, queued: enfileiradas, invalid: invalidas };
+}
+
+const profileImportSchema = z.object({
+  account: z.string().min(1),
+  conteudo: z.enum(["reels", "destaques", "ambos"]).default("reels"),
+  quantidade: z.coerce.number().int().min(0).max(1000).default(0),
+  criterio: z.enum(["recentes", "vistos", "curtidos"]).default("recentes"),
+  analisar: z.coerce.number().int().min(0).max(1000).default(0),
+  quaisDestaques: z.string().max(100).optional().default(""),
+  pausa: z.coerce.number().min(1).max(60).default(4),
+  semLegenda: z.boolean().default(false),
+});
+
+export type ProfileImportInput = z.input<typeof profileImportSchema>;
+
+/** Enfileira o download de um PERFIL inteiro (reels e/ou destaques). */
+export async function importProfileAction(input: ProfileImportInput) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para importar mídia." };
+
+  const semCookie = await exigirCookie(ctx.workspaceId);
+  if (semCookie) return { ok: false as const, error: semCookie };
+
+  const parsed = profileImportSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: "Opções inválidas. Confira os campos." };
+  }
+  const o = parsed.data;
+
+  const conta = normalizeHandle(o.account);
+  if (!isInstagramHandle(conta)) {
+    return { ok: false as const, error: "Conta inválida. Use o @ (sem o arroba) ou o link do perfil." };
+  }
+
+  const imp = await prisma.mediaImport.create({
+    data: {
+      workspaceId: ctx.workspaceId,
+      mode: "PROFILE",
+      account: conta,
+      status: "QUEUED",
+      createdById: ctx.userId,
+      title: `@${conta}: na fila`,
+      options: {
+        conteudo: o.conteudo,
+        quantidade: o.quantidade,
+        criterio: o.criterio,
+        analisar: o.analisar,
+        quaisDestaques: o.quaisDestaques?.trim() || undefined,
+        pausa: o.pausa,
+        semLegenda: o.semLegenda,
+      },
+    },
+  });
+  await enqueueImport(imp.id);
+
+  revalidatePath("/biblioteca");
+  return { ok: true as const, account: conta };
 }
 
 /** Reenfileira uma importação que falhou. */

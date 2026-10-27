@@ -184,6 +184,8 @@ model MediaAsset {
   durationMs   Int?
   checksum     String?
   originalName String?
+  /// Legenda original, quando a mídia veio importada de um Reel/post.
+  caption      String?
 
   /// Capa (poster) extraída do vídeo, para a grade da biblioteca.
   thumbnailKey String?
@@ -498,20 +500,28 @@ model MetaApp {
   @@index([workspaceId, isActive])
 }
 
-/// Estado de um download de Reel/post do Instagram para a biblioteca.
-/// A pessoa cola o link, o worker baixa com yt-dlp, valida e salva o asset.
+/// Estado de uma importação do Instagram para a biblioteca (link ou perfil).
+/// O worker baixa com o reels.py, valida e salva o(s) asset(s).
 model MediaImport {
   id          String       @id @default(cuid())
   workspaceId String
-  /// URL de origem (Reel, post ou vídeo) colada pela pessoa.
-  sourceUrl   String
+  mode        ImportMode   @default(LINK)
+  /// LINK: URL de origem (Reel/post). PROFILE: fica vazio (ver `account`).
+  sourceUrl   String?
+  /// PROFILE: a conta de origem (sem @).
+  account     String?
+  /// PROFILE: opções do downloader (critério, quantidade, destaques, etc).
+  options     Json?
   status      ImportStatus @default(QUEUED)
-  /// Título/legenda que o yt-dlp leu da origem, quando disponível.
+  /// Título/legenda lido da origem, quando disponível.
   title       String?
   /// Mensagem de erro em português, quando o download falha.
   error       String?
-  /// Asset gerado, quando conclui (ou o já existente, no caso de duplicata).
+  /// Asset gerado no modo LINK (ou o já existente, no caso de duplicata).
   assetId     String?
+  /// PROFILE: quantos assets novos entraram e quantos já existiam.
+  downloaded  Int          @default(0)
+  skipped     Int          @default(0)
   /// Quem pediu a importação.
   createdById String?
 
@@ -524,6 +534,11 @@ model MediaImport {
   @@index([workspaceId, createdAt])
 }
 
+enum ImportMode {
+  LINK
+  PROFILE
+}
+
 enum ImportStatus {
   QUEUED
   DOWNLOADING
@@ -533,7 +548,7 @@ enum ImportStatus {
 }
 
 /// cookies.txt (formato Netscape) do Instagram, cifrado em repouso.
-/// Um por workspace. Usado pelo yt-dlp para baixar conteúdo que exige login.
+/// Um por workspace. Usado pelo downloader para baixar conteúdo que exige login.
 /// É a sessão de uma conta do Instagram — some junto com o workspace.
 model InstagramCookie {
   id          String   @id @default(cuid())

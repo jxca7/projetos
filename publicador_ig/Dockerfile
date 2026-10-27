@@ -1,26 +1,22 @@
 # Imagem única que roda tanto o painel quanto o worker.
 # O comando de cada um é escolhido no docker-compose.
 FROM node:22-slim AS base
-# ffprobe/ffmpeg validam a mídia no upload (e o yt-dlp usa para remuxar).
+# ffprobe/ffmpeg validam a mídia no upload e juntam as faixas dos Reels baixados.
 # openssl é usado pela geração de segredos e pelo Prisma.
-# curl baixa o yt-dlp.
+# python3 roda o downloader de Reels (vendor/ig-downloader/reels.py).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg openssl ca-certificates curl \
+  && apt-get install -y --no-install-recommends \
+       ffmpeg openssl ca-certificates python3 python3-venv \
   && rm -rf /var/lib/apt/lists/*
-# yt-dlp: baixa os Reels na importação da biblioteca. Binário único (PyInstaller),
-# sem dependência de Python. Deixe YTDLP_VERSION vazio para pegar a última versão
-# (recomendado: o Instagram muda e a versão nova acompanha); fixe uma tag
-# (ex.: 2025.09.05) se quiser um build reproduzível.
-ARG YTDLP_VERSION=
-RUN set -eux; \
-  if [ -n "$YTDLP_VERSION" ]; then \
-    url="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_linux"; \
-  else \
-    url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"; \
-  fi; \
-  curl -fsSL "$url" -o /usr/local/bin/yt-dlp; \
-  chmod +x /usr/local/bin/yt-dlp; \
-  /usr/local/bin/yt-dlp --version
+# Dependências Python do downloader, num venv isolado (evita o PEP 668 do Debian).
+# curl_cffi conecta com a "cara" do Chrome, que é o que o Instagram exige hoje
+# para entregar a mídia — o mesmo que qualquer baixador de Reels faz.
+RUN python3 -m venv /opt/ig-dl \
+  && /opt/ig-dl/bin/pip install --no-cache-dir --upgrade pip \
+  && /opt/ig-dl/bin/pip install --no-cache-dir "curl_cffi>=0.7" "requests[socks]>=2.28"
+# O worker encontra o interpretador e o script por estas variáveis.
+ENV IG_DL_PYTHON=/opt/ig-dl/bin/python3 \
+    IG_DL_SCRIPT=/app/vendor/ig-downloader/reels.py
 # Fixa a MESMA versão do pnpm que gerou o lockfile. Sem isto, o corepack baixa
 # a versão que vier por padrão na imagem, que pode aplicar a trava de idade
 # mínima de pacote (minimumReleaseAge) e recusar um lockfile legítimo.

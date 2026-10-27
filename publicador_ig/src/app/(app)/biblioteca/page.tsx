@@ -45,10 +45,14 @@ export default async function BibliotecaPage() {
 
   const initialImports: ImportRow[] = importRows.map((r) => ({
     id: r.id,
+    mode: r.mode,
+    account: r.account,
     sourceUrl: r.sourceUrl,
     status: r.status,
     title: r.title,
     error: r.error,
+    downloaded: r.downloaded,
+    skipped: r.skipped,
     thumbnailUrl: r.asset?.thumbnailUrl ?? null,
     createdAt: r.createdAt.toISOString(),
   }));

@@ -1,30 +1,15 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+/** Interpretador e script do downloader (vendor/ig-downloader/reels.py). */
+const PYTHON = process.env.IG_DL_PYTHON || "python3";
+const SCRIPT = process.env.IG_DL_SCRIPT || path.join(process.cwd(), "vendor/ig-downloader/reels.py");
 
-/** Binário do yt-dlp. Sobrescrevível por env em ambientes fora do padrão. */
-const YT_DLP = process.env.YTDLP_PATH || "yt-dlp";
-
-/** Teto de download (bate com o limite de 1 GB da biblioteca). */
-const MAX_FILESIZE = "1024M";
-
-/** Timeout de um download, em ms. Reels são curtos; 5 min cobre rede ruim. */
-const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
-
-export interface DownloadedReel {
-  /** Caminho do arquivo baixado (dentro de `dir`). */
-  filePath: string;
-  mimeType: string;
-  title: string | null;
-  uploader: string | null;
-  /** Diretório temporário a limpar quando terminar de usar o arquivo. */
-  dir: string;
-}
+/** Teto de tempo de um run do downloader (perfis grandes demoram). */
+const RUN_TIMEOUT_MS = Number(process.env.IG_DL_TIMEOUT_MS ?? 30 * 60 * 1000);
 
 export class ReelDownloadError extends Error {
   constructor(message: string) {
@@ -35,8 +20,8 @@ export class ReelDownloadError extends Error {
 
 /**
  * Só aceitamos links do próprio Instagram. Além de ser o escopo do recurso,
- * isso impede que o campo de URL vire um baixador genérico apontando para a
- * rede interna do servidor (SSRF).
+ * impede que o campo de URL vire um baixador genérico apontando para a rede
+ * interna do servidor (SSRF).
  */
 export function isInstagramUrl(raw: string): boolean {
   let u: URL;
@@ -50,115 +35,233 @@ export function isInstagramUrl(raw: string): boolean {
   return host === "instagram.com" || host.endsWith(".instagram.com");
 }
 
-/** Traduz os erros mais comuns do yt-dlp para português. */
-function friendlyError(stderr: string): string {
-  const s = stderr.toLowerCase();
-  if (s.includes("login required") || s.includes("rate-limit") || s.includes("not available")) {
-    return "O Instagram pediu login para esse conteúdo. Configure o cookie da sua conta na própria tela de importação (ou o link é privado).";
+/** Nome de conta válido do Instagram (sem @). */
+export function isInstagramHandle(raw: string): boolean {
+  return /^[A-Za-z0-9._]{1,30}$/.test(raw.trim());
+}
+
+/** Extrai o handle de um link de perfil ou devolve o próprio handle. */
+export function normalizeHandle(raw: string): string {
+  const t = raw.trim();
+  if (isInstagramUrl(t)) {
+    try {
+      const seg = new URL(t).pathname.split("/").filter(Boolean);
+      return (seg[0] ?? "").replace(/^@/, "").toLowerCase();
+    } catch {
+      return "";
+    }
   }
-  if (s.includes("private") || s.includes("not authorized")) {
-    return "Conteúdo privado: a conta que você usou no cookie precisa seguir/ter acesso a esse perfil.";
+  return t.replace(/^@/, "").toLowerCase();
+}
+
+export type Criterio = "recentes" | "vistos" | "curtidos";
+export type Conteudo = "reels" | "destaques" | "ambos";
+
+export interface ProfileOptions {
+  /** 0 = todos. */
+  quantidade: number;
+  criterio: Criterio;
+  /** Com vistos/curtidos: analisar só entre os N mais recentes. 0 = todos. */
+  analisar: number;
+  conteudo: Conteudo;
+  /** Quais destaques, pela ordem do perfil. Ex.: "1,3" ou "2-4". Vazio = todos. */
+  quaisDestaques?: string;
+  /** Segundos entre downloads. */
+  pausa: number;
+  semLegenda: boolean;
+}
+
+export interface DownloadedFile {
+  path: string;
+  mimeType: "video/mp4" | "video/quicktime" | "image/jpeg" | "image/png";
+  caption: string | null;
+}
+
+export interface DownloaderResult {
+  /** Diretório temporário (o chamador ingere os arquivos e depois apaga). */
+  dir: string;
+  files: DownloadedFile[];
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  /** O processo foi morto por estourar o tempo. */
+  timedOut: boolean;
+}
+
+const MIME_POR_EXT: Record<string, DownloadedFile["mimeType"]> = {
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+};
+
+/** Percorre a pasta de saída e lista os arquivos de mídia (com legenda irmã). */
+async function coletarArquivos(outDir: string): Promise<DownloadedFile[]> {
+  const achados: DownloadedFile[] = [];
+  async function walk(dir: string) {
+    let entradas: import("node:fs").Dirent[];
+    try {
+      entradas = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entradas) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      const ext = path.extname(e.name).toLowerCase();
+      const mime = MIME_POR_EXT[ext];
+      if (!mime) continue; // ignora .txt de legenda, .json, .part, etc.
+      // Legenda irmã (<arquivo>.txt), quando o downloader a salvou.
+      let caption: string | null = null;
+      try {
+        caption = await fs.readFile(full.replace(/\.[^.]+$/, ".txt"), "utf8");
+      } catch {
+        /* sem legenda */
+      }
+      achados.push({ path: full, mimeType: mime, caption });
+    }
   }
-  if (s.includes("404") || s.includes("not found") || s.includes("unable to download webpage")) {
-    return "Link não encontrado. Confira se o Reel/post ainda existe e se a URL está completa.";
+  await walk(outDir);
+  return achados;
+}
+
+/** Monta os argumentos do reels.py a partir das opções de perfil. */
+function argsDePerfil(o: ProfileOptions): string[] {
+  const a: string[] = [];
+  if (o.conteudo === "destaques") a.push("--destaques");
+  else if (o.conteudo === "ambos") a.push("--reels-e-destaques");
+
+  if (o.conteudo !== "destaques") {
+    a.push("-n", String(Math.max(0, o.quantidade)));
+    if (o.criterio === "vistos") a.push("--mais-vistos");
+    else if (o.criterio === "curtidos") a.push("--mais-curtidos");
+    if (o.criterio !== "recentes") {
+      if (o.analisar > 0) a.push("--analisar", String(o.analisar));
+      a.push("--atualizar-lista"); // nada de cache entre runs
+    }
   }
-  if (s.includes("filesize") || s.includes("max-filesize")) {
-    return "Vídeo acima de 1 GB.";
+  if (o.conteudo !== "reels" && o.quaisDestaques?.trim()) {
+    a.push("--quais-destaques", o.quaisDestaques.trim());
   }
-  // Mensagem genérica, mas com a última linha útil do yt-dlp.
-  const lastLine = stderr.trim().split("\n").filter(Boolean).pop() ?? "";
-  return `Falha ao baixar: ${lastLine.slice(0, 300) || "erro desconhecido no yt-dlp"}`;
+  return a;
 }
 
 /**
- * Baixa um Reel/post do Instagram com yt-dlp para um diretório temporário.
- * `cookiesPath`, quando informado, é um arquivo cookies.txt (Netscape) que dá
- * acesso ao conteúdo que exige login. O chamador é dono do `dir` devolvido e
- * deve apagá-lo depois de ingerir o arquivo.
+ * Executa o downloader (reels.py) para uma lista de links OU um perfil.
+ * Copia o script para um diretório temporário por run, de modo que o histórico
+ * dele comece zerado e sempre baixe — a dedup por checksum da biblioteca é quem
+ * decide o que já existe. O chamador é dono de `dir` e deve apagá-lo depois.
  */
-export async function downloadReel(
-  url: string,
-  opts: { cookiesPath?: string } = {},
-): Promise<DownloadedReel> {
-  if (!isInstagramUrl(url)) {
-    throw new ReelDownloadError("Use um link do Instagram (instagram.com/reel/... ou /p/...).");
-  }
-
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `reel-${crypto.randomBytes(6).toString("hex")}-`));
-
-  const args: string[] = [];
-  if (opts.cookiesPath) args.push("--cookies", opts.cookiesPath);
-  args.push(
-    "--no-playlist", // um link de reel não deve arrastar o perfil inteiro
-    "--no-progress",
-    "--no-warnings",
-    "--quiet",
-    "--no-part",
-    "-f",
-    "mp4/bestvideo*+bestaudio/best",
-    "--merge-output-format",
-    "mp4",
-    "--remux-video",
-    "mp4", // garante container .mp4 (compatível com Reels)
-    "--max-filesize",
-    MAX_FILESIZE,
-    "--retries",
-    "3",
-    "--write-info-json",
-    "-o",
-    path.join(dir, "media.%(ext)s"),
-    url,
-  );
-
+export async function runDownloader(opts: {
+  cookiesPath: string;
+  links?: string[];
+  account?: string;
+  profile?: ProfileOptions;
+  pausa?: number;
+  semLegenda?: boolean;
+}): Promise<DownloaderResult> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `igdl-${crypto.randomBytes(6).toString("hex")}-`));
+  const outDir = path.join(dir, "out");
+  const scriptCopia = path.join(dir, "reels.py");
+  await fs.mkdir(outDir, { recursive: true });
+  // Cópia do script: isola o histórico (dados/) deste run dos demais.
   try {
-    await execFileAsync(YT_DLP, args, {
-      timeout: DOWNLOAD_TIMEOUT_MS,
-      maxBuffer: 8 * 1024 * 1024,
+    await fs.copyFile(SCRIPT, scriptCopia);
+  } catch {
+    await fs.rm(dir, { recursive: true, force: true });
+    throw new ReelDownloadError(
+      "Downloader (reels.py) não encontrado na imagem. Reconstrua com docker compose up -d --build.",
+    );
+  }
+
+  // Alvo posicional primeiro, depois as opções.
+  const args: string[] = [scriptCopia];
+  if (opts.links && opts.links.length > 0) {
+    args.push(...opts.links);
+    if (opts.semLegenda) args.push("--sem-legenda");
+  } else if (opts.account) {
+    args.push(opts.account);
+    if (opts.profile) {
+      args.push(...argsDePerfil(opts.profile));
+      if (opts.profile.semLegenda) args.push("--sem-legenda");
+    }
+  } else {
+    await fs.rm(dir, { recursive: true, force: true });
+    throw new ReelDownloadError("Nada para baixar: informe links ou uma conta.");
+  }
+  args.push("-o", outDir, "--cookies", opts.cookiesPath);
+  args.push("--pausa", String(opts.profile?.pausa ?? opts.pausa ?? 4));
+
+  const { stdout, stderr, exitCode, timedOut } = await executar(args, dir);
+  const files = await coletarArquivos(outDir);
+
+  // Sem nenhum arquivo produzido e com erro: é falha de verdade.
+  if (files.length === 0 && exitCode !== 0) {
+    await fs.rm(dir, { recursive: true, force: true });
+    throw new ReelDownloadError(mensagemDeErro(stderr || stdout, timedOut));
+  }
+
+  return { dir, files, stdout, stderr, exitCode, timedOut };
+}
+
+/** Roda o processo com teto de tempo, sem stdin (evita travar em prompt). */
+function executar(
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(PYTHON, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
     });
-  } catch (e) {
-    await fs.rm(dir, { recursive: true, force: true });
-    const err = e as { stderr?: string; stdout?: string; code?: string; killed?: boolean };
-    if (err.killed) throw new ReelDownloadError("Download demorou demais e foi cancelado.");
-    if (err.code === "ENOENT") {
-      throw new ReelDownloadError(
-        "yt-dlp não está instalado no servidor. Reconstrua a imagem (docker compose up -d --build).",
-      );
-    }
-    throw new ReelDownloadError(friendlyError(err.stderr ?? err.stdout ?? ""));
-  }
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const cap = 1024 * 1024; // guarda no máximo ~1 MB de cada stream
+    child.stdout.on("data", (d) => {
+      if (stdout.length < cap) stdout += d.toString();
+    });
+    child.stderr.on("data", (d) => {
+      if (stderr.length < cap) stderr += d.toString();
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, RUN_TIMEOUT_MS);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+        reject(new ReelDownloadError("Python não encontrado no servidor (IG_DL_PYTHON)."));
+      } else {
+        reject(e);
+      }
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, exitCode: code, timedOut });
+    });
+  });
+}
 
-  // Encontra o arquivo de vídeo gerado (ignora o .info.json).
-  const files = await fs.readdir(dir);
-  const videoName = files.find((f) => !f.endsWith(".info.json") && !f.endsWith(".part"));
-  if (!videoName) {
-    await fs.rm(dir, { recursive: true, force: true });
-    throw new ReelDownloadError("O yt-dlp não produziu nenhum arquivo de vídeo.");
+/** Última linha útil do downloader, traduzida nos casos comuns. */
+function mensagemDeErro(saida: string, timedOut: boolean): string {
+  if (timedOut) return "Download demorou demais e foi interrompido.";
+  const s = saida.toLowerCase();
+  if (s.includes("nao achei o cookies") || s.includes("cookies")) {
+    return "Configure o cookie da conta na própria tela de importação (o Instagram exige login).";
   }
-
-  // Lê título/autor do .info.json, quando houver.
-  let title: string | null = null;
-  let uploader: string | null = null;
-  const infoName = files.find((f) => f.endsWith(".info.json"));
-  if (infoName) {
-    try {
-      const info = JSON.parse(await fs.readFile(path.join(dir, infoName), "utf8")) as {
-        title?: string;
-        description?: string;
-        uploader?: string;
-        uploader_id?: string;
-      };
-      title = (info.title || info.description || "").slice(0, 300) || null;
-      uploader = info.uploader || info.uploader_id || null;
-    } catch {
-      // info.json corrompido não impede a importação.
-    }
+  if (s.includes("429") || s.includes("login") || s.includes("bloqueou")) {
+    return "O Instagram pediu login ou limitou a conta do cookie. Espere e tente de novo, ou use outra conta no cookie.";
   }
-
-  return {
-    filePath: path.join(dir, videoName),
-    mimeType: "video/mp4",
-    title,
-    uploader,
-    dir,
-  };
+  if (s.includes("privad") || s.includes("not found") || s.includes("nao encontr")) {
+    return "Perfil/conteúdo privado ou inexistente para a conta do cookie.";
+  }
+  const linhas = saida.trim().split("\n").filter(Boolean);
+  const ultima = linhas.length ? linhas[linhas.length - 1] : "";
+  return `Falha no download: ${ultima.slice(0, 300) || "erro desconhecido"}`;
 }

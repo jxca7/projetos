@@ -96,23 +96,30 @@ META_DRIVER="graph"
 Reinicie o `pnpm dev` e o `pnpm worker`. A partir daí, **Conectar Instagram** na
 tela de Contas abre o OAuth de verdade.
 
-## Baixar Reels para a biblioteca
+## Baixar do Instagram para a biblioteca
 
-Na tela **Biblioteca** há o bloco **Importar Reels do Instagram**: cole um ou
-vários links (um por linha) e o servidor baixa com `yt-dlp`, valida e salva como
-asset, pronto para reaproveitar em qualquer post.
+Na tela **Biblioteca** há o bloco **Baixar do Instagram**, com o mesmo motor do
+downloader do projeto (`vendor/ig-downloader/reels.py`), em duas abas:
 
-- **Conteúdo que exige login** (a maioria dos Reels): clique em **Configurar
-  cookie**, exporte o `cookies.txt` da sua conta com a extensão *Get cookies.txt
-  LOCALLY* e cole ali. Fica cifrado no banco (AES-256-GCM), como os tokens.
-- Use uma **conta secundária** no cookie e não baixe centenas de uma vez: baixar
-  rápido demais pode gerar limite temporário **na conta do cookie** (não afeta as
-  contas conectadas, que publicam por outro caminho).
-- Baixe apenas conteúdo que você tem direito de usar. A ferramenta não remove
-  marca d'água nem contorna bloqueio: é download direto do arquivo.
+- **Perfil inteiro**: a conta (@ ou link), o que baixar (reels, destaques ou os
+  dois), quantos, a ordem (**mais recentes / mais visualizados / mais curtidos**),
+  *analisar entre os N mais recentes*, **quais destaques** (ex.: `1,3` ou `2-4`),
+  pausa entre downloads e *não salvar legenda*.
+- **Links avulsos**: cole um ou vários links de Reel/post (um por linha).
 
-Em desenvolvimento, instale o `yt-dlp` na máquina (`pipx install yt-dlp` ou o
-binário do projeto) e tenha o `ffmpeg` no PATH. No Docker já vem na imagem.
+Tudo é baixado na melhor qualidade, validado e salvo como asset (a legenda vem
+junto, quando existe). Rodar de novo a mesma coisa não duplica: a biblioteca
+reconhece o arquivo pelo checksum.
+
+**Cookie (obrigatório).** O Instagram exige login para listar perfil e entregar a
+mídia. Clique em **Configurar cookie**, exporte o `cookies.txt` da sua conta com a
+extensão *Get cookies.txt LOCALLY* e cole ali — fica cifrado no banco
+(AES-256-GCM), como os tokens. Use uma **conta secundária**: baixar rápido demais
+pode gerar limite **na conta do cookie** (não afeta as contas que publicam, que
+usam outro caminho). Baixe só conteúdo que você tem direito de usar.
+
+Em desenvolvimento, tenha `python3`, `ffmpeg` e as libs do downloader
+(`pip install curl_cffi "requests[socks]"`) no PATH. No Docker já vêm na imagem.
 
 ## Comandos úteis
 

@@ -28,6 +28,8 @@ export interface IngestInput {
   originalName: string;
   mimeType: string;
   usedFor: UsedFor;
+  /** Legenda original, quando a mídia veio importada de um Reel/post. */
+  caption?: string | null;
 }
 
 export interface IngestResult {
@@ -70,7 +72,7 @@ export class MediaRejectedError extends Error {
  * no storage. Usado tanto pelo upload manual quanto pela importação de Reels.
  */
 export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
-  const { workspaceId, body, originalName, mimeType, usedFor } = input;
+  const { workspaceId, body, originalName, mimeType, usedFor, caption } = input;
 
   const kind = ALLOWED.get(mimeType);
   if (!kind) throw new UnsupportedMediaError(mimeType);
@@ -138,6 +140,7 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
       height: probe?.height ?? null,
       durationMs: probe?.durationMs ?? null,
       originalName: originalName || null,
+      caption: caption?.trim() ? caption.trim().slice(0, 2200) : null,
       thumbnailKey,
       thumbnailUrl,
     },

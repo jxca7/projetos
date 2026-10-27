@@ -16,10 +16,14 @@ export async function GET() {
   return NextResponse.json({
     imports: rows.map((r) => ({
       id: r.id,
+      mode: r.mode,
+      account: r.account,
       sourceUrl: r.sourceUrl,
       status: r.status,
       title: r.title,
       error: r.error,
+      downloaded: r.downloaded,
+      skipped: r.skipped,
       thumbnailUrl: r.asset?.thumbnailUrl ?? null,
       createdAt: r.createdAt.toISOString(),
     })),
