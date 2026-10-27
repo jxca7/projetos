@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
-import { maintenanceQueue, enqueueImport, enqueueStoryApp } from "@/lib/queue";
+import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare } from "@/lib/queue";
 import { isInstagramUrl, isInstagramHandle, normalizeHandle } from "@/lib/media/download";
 
 /** Garante que o recurso pertence ao workspace do usuário logado. */
@@ -992,5 +992,116 @@ export async function clearStoryJobsAction() {
     await prisma.storyAppJob.deleteMany({ where: { id: { in: finalizados } } });
   }
   revalidatePath("/story-link");
+  return { ok: true as const, removed: finalizados.length };
+}
+
+// ---------------------------------------------------------------------------
+// Preparar conta: trocar foto e/ou bio (pelo app, server-side)
+// ---------------------------------------------------------------------------
+
+export async function createPrepareJobAction(input: {
+  mediaId?: string;
+  bio?: string;
+  proxy?: string;
+  accounts: string;
+}) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const contas = parseAccounts(input.accounts);
+  if (contas.length === 0) {
+    return { ok: false as const, error: "Informe ao menos uma conta (usuario:senha ou a linha de combo)." };
+  }
+  if (contas.length > MAX_CONTAS_STORY) {
+    return { ok: false as const, error: `Máximo de ${MAX_CONTAS_STORY} contas por vez.` };
+  }
+
+  const bio = (input.bio ?? "").trim();
+  if (bio.length > 150) {
+    return { ok: false as const, error: `A bio tem ${bio.length} caracteres; o limite do Instagram é 150.` };
+  }
+
+  let imageKey: string | null = null;
+  let imageUrl: string | null = null;
+  if (input.mediaId) {
+    const asset = await prisma.mediaAsset.findFirst({
+      where: { id: input.mediaId, workspaceId: ctx.workspaceId },
+    });
+    if (!asset) return { ok: false as const, error: "Foto não encontrada nesta conta." };
+    if (asset.kind !== "IMAGE") return { ok: false as const, error: "A foto do perfil precisa ser uma imagem." };
+    imageKey = asset.storageKey;
+    imageUrl = asset.publicUrl;
+  }
+
+  if (!imageKey && !bio) {
+    return { ok: false as const, error: "Escolha uma foto, uma bio, ou as duas." };
+  }
+
+  const proxy = (input.proxy ?? "").trim();
+  if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy) && !/^[^\s:]+:\d+(:[^\s:]+:[^\s]+)?$/.test(proxy)) {
+    return {
+      ok: false as const,
+      error: "Proxy inválido. Use host:porta, host:porta:usuario:senha ou http://user:senha@host:porta",
+    };
+  }
+
+  const job = await prisma.prepareJob.create({
+    data: {
+      workspaceId: ctx.workspaceId,
+      imageKey,
+      imageUrl,
+      bio: bio || null,
+      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      createdById: ctx.userId,
+      targets: {
+        create: contas.map((c) => ({
+          username: c.usuario,
+          passwordEnc: encryptSecret(c.senha),
+          comboEnc: c.combo ? encryptSecret(c.combo) : null,
+        })),
+      },
+    },
+    include: { targets: { select: { id: true } } },
+  });
+
+  for (const t of job.targets) await enqueuePrepare(t.id);
+
+  revalidatePath("/preparar");
+  return { ok: true as const, jobId: job.id, contas: contas.length };
+}
+
+export async function retryPrepareTargetAction(targetId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const target = await prisma.prepareTarget.findFirst({
+    where: { id: targetId, job: { workspaceId: ctx.workspaceId } },
+  });
+  if (!target) return { ok: false as const, error: "Não encontrado." };
+
+  await prisma.prepareTarget.update({
+    where: { id: target.id },
+    data: { status: "QUEUED", error: null },
+  });
+  await enqueuePrepare(target.id);
+  revalidatePath("/preparar");
+  return { ok: true as const };
+}
+
+export async function clearPrepareJobsAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const jobs = await prisma.prepareJob.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    include: { targets: { select: { status: true } } },
+  });
+  const finalizados = jobs
+    .filter((j) => j.targets.every((t) => t.status === "DONE" || t.status === "FAILED" || t.status === "SKIPPED_2FA"))
+    .map((j) => j.id);
+  if (finalizados.length) {
+    await prisma.prepareJob.deleteMany({ where: { id: { in: finalizados } } });
+  }
+  revalidatePath("/preparar");
   return { ok: true as const, removed: finalizados.length };
 }

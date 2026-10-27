@@ -6,6 +6,7 @@ export const QUEUE_INSIGHTS = "insights";
 export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_IMPORT = "import";
 export const QUEUE_STORY_APP = "story-app";
+export const QUEUE_PREPARE = "prepare";
 
 export interface PublishJobData {
   targetId: string;
@@ -31,12 +32,17 @@ export interface StoryAppJobData {
   targetId: string;
 }
 
+export interface PrepareJobData {
+  targetId: string;
+}
+
 const globalForQueues = globalThis as unknown as {
   publishQueue?: Queue<PublishJobData>;
   insightsQueue?: Queue<InsightsJobData>;
   maintenanceQueue?: Queue<MaintenanceJobData>;
   importQueue?: Queue<ImportJobData>;
   storyAppQueue?: Queue<StoryAppJobData>;
+  prepareQueue?: Queue<PrepareJobData>;
 };
 
 /**
@@ -195,6 +201,39 @@ export async function enqueueStoryApp(targetId: string): Promise<void> {
     {
       jobId,
       attempts: 1, // login/post não deve repetir sozinho (evita lockout)
+      removeOnComplete: { age: 24 * 3600, count: 1_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
+    },
+  );
+}
+
+export function prepareQueue(): Queue<PrepareJobData> {
+  if (!globalForQueues.prepareQueue) {
+    globalForQueues.prepareQueue = new Queue<PrepareJobData>(QUEUE_PREPARE, {
+      connection: redis(),
+    });
+  }
+  return globalForQueues.prepareQueue;
+}
+
+/** Enfileira a preparação (foto/bio) de uma conta. Um job por target. */
+export async function enqueuePrepare(targetId: string): Promise<void> {
+  const q = prepareQueue();
+  const jobId = `prepare-${targetId}`;
+  const anterior = await q.getJob(jobId);
+  if (anterior) {
+    try {
+      await anterior.remove();
+    } catch {
+      /* em execução: o processador checa o status no banco */
+    }
+  }
+  await q.add(
+    "prepare-account",
+    { targetId },
+    {
+      jobId,
+      attempts: 1, // login/ação não repete sozinho (evita lockout)
       removeOnComplete: { age: 24 * 3600, count: 1_000 },
       removeOnFail: { age: 7 * 24 * 3600 },
     },

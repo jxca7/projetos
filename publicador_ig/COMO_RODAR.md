@@ -145,6 +145,15 @@ por vez, espaçada**. Contas com 2FA/verificação são puladas (resolva no app 
 > conta. Não misture essa automação com volume alto nas contas que publicam pela
 > API oficial.
 
+## Preparar conta (trocar foto e bio, pelo app)
+
+A tela **Preparar conta** troca a **foto de perfil** e a **bio** pelo app
+(instagrapi), no servidor — sem abrir navegador no seu PC. Você envia a foto
+e/ou a bio, cola as contas (combo `usuario:senha | useragent | techdata | cookie`
+ou só `usuario:senha`) e um proxy. Cada conta vai **uma de cada vez**, reusando a
+mesma sessão salva do Story (combo com cookie entra sem 2FA). Status ao vivo por
+conta, com "tentar de novo". A bio só muda a bio (preserva nome/link/contato).
+
 ## Comandos úteis
 
 ```bash

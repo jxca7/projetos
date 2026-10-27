@@ -7,18 +7,21 @@ import {
   QUEUE_MAINTENANCE,
   QUEUE_PUBLISH,
   QUEUE_STORY_APP,
+  QUEUE_PREPARE,
   maintenanceQueue,
   type ImportJobData,
   type InsightsJobData,
   type MaintenanceJobData,
   type PublishJobData,
   type StoryAppJobData,
+  type PrepareJobData,
 } from "@/lib/queue";
 import { applyOutcome, processPublishTarget } from "./publish";
 import { processInsights } from "./insights";
 import { processMaintenance } from "./maintenance";
 import { processImport } from "./import";
 import { processStoryApp } from "./story-app";
+import { processPrepare } from "./prepare";
 import { env } from "@/lib/env";
 
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? "8");
@@ -76,6 +79,13 @@ async function main() {
     { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
   );
 
+  // Preparar conta (foto/bio): uma conta por vez e espaçada, como o story.
+  const prepareWorker = new Worker<PrepareJobData>(
+    QUEUE_PREPARE,
+    async (job) => processPrepare(job.data),
+    { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
+  );
+
   publishWorker.on("completed", (job, result) => {
     const r = result as { kind: string; reason?: string; delayMs?: number } | undefined;
     if (r?.kind === "retry") {
@@ -104,6 +114,12 @@ async function main() {
   storyAppWorker.on("failed", (job, err) => {
     log(`story ${job?.data.targetId} falhou: ${err.message}`);
   });
+  prepareWorker.on("completed", (job) => {
+    log(`preparar ${job.data.targetId}: processado`);
+  });
+  prepareWorker.on("failed", (job, err) => {
+    log(`preparar ${job?.data.targetId} falhou: ${err.message}`);
+  });
 
   // Rotinas periodicas.
   const mq = maintenanceQueue();
@@ -131,6 +147,7 @@ async function main() {
       maintenanceWorker.close(),
       importWorker.close(),
       storyAppWorker.close(),
+      prepareWorker.close(),
     ]);
     process.exit(0);
   };

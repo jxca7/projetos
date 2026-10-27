@@ -94,6 +94,14 @@ function NavIcon({ href, className }: { href: string; className?: string }) {
           <path d="M13.5 11.5a2.5 2.5 0 0 1 0 3l-1 1a2.5 2.5 0 0 1-3.5-3.5l.7-.7" />
         </svg>
       );
+    case "/preparar":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M5.5 21a7 7 0 0 1 13 0" />
+          <path d="m18 3 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

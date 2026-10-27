@@ -84,6 +84,7 @@ model Workspace {
   mediaImports    MediaImport[]
   instagramCookie InstagramCookie?
   storyAppJobs    StoryAppJob[]
+  prepareJobs     PrepareJob[]
   igSessions      IgSession[]
   subscription   Subscription?
 }
@@ -638,4 +639,47 @@ model IgSession {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, username])
+}
+
+/// Preparar conta: trocar foto e/ou bio pelo app (instagrapi), server-side.
+/// Uma foto/bio, aplicada a várias contas. Reusa o mesmo motor/sessão do Story.
+model PrepareJob {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  /// Foto do perfil (guardada no storage). Opcional.
+  imageKey    String?
+  imageUrl    String?
+  /// Bio a aplicar. Opcional. (Pelo menos uma das duas é obrigatória.)
+  bio         String?
+  proxyEnc    String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   PrepareTarget[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Uma conta a preparar. Senha e combo cifrados, como no Story.
+model PrepareTarget {
+  id       String @id @default(cuid())
+  jobId    String
+
+  username    String
+  passwordEnc String
+  comboEnc    String?
+
+  status   StoryAppStatus @default(QUEUED)
+  error    String?
+  doneAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job PrepareJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
