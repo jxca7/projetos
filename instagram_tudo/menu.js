@@ -2,24 +2,27 @@
 // Garante que as pastas e os arquivos-modelo existam (caso rode sem passar pelo rodar.bat)
 require('./preparar').preparar();
 
+// cada tarefa: [arquivo, função a chamar]
 const tarefas = {
-  tudo: './tudo',
-  perfil: './perfil',
-  conectar: './conectar',
-  testar: './testar',
-  capturar: './capturar_site',
-  testadores: './testadores',
+  tudo: ['./tudo', 'rodar'],
+  perfil: ['./perfil', 'rodar'],
+  conectar: ['./conectar', 'rodar'],
+  conectar_testador: ['./conectar', 'rodarComTestador'],
+  testar: ['./testar', 'rodar'],
+  capturar: ['./capturar_site', 'rodar'],
+  testadores: ['./testadores', 'rodar'],
 };
 
 const tarefa = process.argv[2];
-const mod = tarefas[tarefa];
-if (!mod) {
-  console.error(`Tarefa desconhecida: "${tarefa}". Use tudo, perfil, conectar ou testar.`);
+const def = tarefas[tarefa];
+if (!def) {
+  console.error(`Tarefa desconhecida: "${tarefa}". Use: ${Object.keys(tarefas).join(', ')}.`);
   process.exit(1);
 }
 
+const [mod, fn] = def;
 require(mod)
-  .rodar()
+  [fn]()
   .catch((err) => {
     console.error('\nERRO:', err.message);
     process.exitCode = 1;

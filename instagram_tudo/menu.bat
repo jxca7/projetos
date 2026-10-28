@@ -17,6 +17,7 @@ echo    5 - Testar cookies (mostrando as janelas)
 echo    6 - Postar story (com link e destaque)
 echo    7 - Capturar tela do site (para calibrar)
 echo    8 - Adicionar testadores (Meta / Testador do Instagram)
+echo    9 - Aceitar convite de testador e conectar (pelo cookie)
 echo    0 - Sair
 echo  ============================================
 set "op="
@@ -30,6 +31,7 @@ if "%op%"=="5" ( node menu.js testar --ver & goto fim )
 if "%op%"=="6" ( call story\rodar_story.bat & cd /d "%~dp0" & goto fim )
 if "%op%"=="7" ( node menu.js capturar & goto fim )
 if "%op%"=="8" ( node menu.js testadores & goto fim )
+if "%op%"=="9" ( node menu.js conectar_testador & goto fim )
 if "%op%"=="0" exit /b 0
 echo Opcao invalida.
 goto menu

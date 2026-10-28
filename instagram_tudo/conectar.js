@@ -665,12 +665,63 @@ async function passarTelas(page, nome) {
   if (/instagram\.com|facebook\.com/.test(page.url())) throw new Error('Cliquei em "Permitir", mas não voltou para o site');
 }
 
-async function conectarConta(browser, site, conta) {
+// Entra na conta (pelo cookie) e aceita o convite de "Testador do Instagram".
+// É "best-effort": se não achar convite pendente, só avisa e segue (não dá erro).
+async function aceitarConvite(page, nome) {
+  log(nome, 'Procurando convite de testador no Instagram...');
+  await page
+    .goto('https://www.instagram.com/accounts/manage_access/', { waitUntil: 'domcontentloaded', timeout: 60000 })
+    .catch(() => {});
+  await pausaHumana(2500, 4000);
+
+  // Se caiu na tela de login, o cookie não logou — não dá pra aceitar.
+  const precisaLogin = await page
+    .evaluate(() => !!document.querySelector('input[name="username"]') || /\/accounts\/login/.test(location.pathname))
+    .catch(() => false);
+  if (precisaLogin) {
+    log(nome, 'AVISO: não consegui abrir a página de convites (cookie não logou). Pulei a etapa de testador.');
+    return false;
+  }
+
+  // Alguns layouts têm uma aba/seção "Convites de testador"; clica se existir.
+  await clicarTexto(
+    page,
+    ['Convites de testador', 'Tester Invites', 'Convites de teste', 'Convites de testadores', 'Convites'],
+    4000,
+  ).catch(() => {});
+  await pausaHumana(1200, 2200);
+
+  // Procura e clica em "Aceitar" (pode haver mais de um convite).
+  let aceitou = 0;
+  for (let i = 0; i < 8; i++) {
+    if (!(await clicarTexto(page, ['Aceitar', 'Accept'], 4000))) break;
+    aceitou++;
+    await pausaHumana(1200, 2200);
+    // Confirmação, se aparecer um pop-up.
+    await clicarTexto(page, ['Aceitar', 'Accept', 'Confirmar', 'Confirm', 'OK'], 2500).catch(() => {});
+    await pausaHumana(1200, 2200);
+  }
+
+  if (aceitou) log(nome, `Convite(s) de testador aceito(s): ${aceitou}.`);
+  else log(nome, 'Nenhum convite de testador pendente na web (ou já aceito / precisa aceitar pelo app).');
+  return aceitou > 0;
+}
+
+async function conectarConta(browser, site, conta, opcoes = {}) {
   const nome = conta.usuario;
   const page = (await browser.pages())[0] || (await browser.newPage());
   await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9' });
   try {
     await limparLoginInstagram(page);
+    if (opcoes.aceitarTestador) {
+      if (conta.modo === 'cookie' && conta.arquivo) {
+        // Entra pelo cookie para aceitar o convite; depois o conectar faz o login de novo pela tela do OAuth.
+        await injetarCookies(page, conta, nome);
+        await aceitarConvite(page, nome);
+      } else {
+        log(nome, 'AVISO: aceitar convite de testador precisa de cookie (pasta cookies/). Só vou conectar.');
+      }
+    }
     // Não coloca o cookie aqui (antes): ele é colocado na tela do Instagram do OAuth, dentro do fazerLogin.
     const alvo = (await clicarConectar(page, site, nome, browser)) || page;
     await fazerLogin(alvo, conta, nome);
@@ -682,7 +733,8 @@ async function conectarConta(browser, site, conta) {
   }
 }
 
-async function rodar() {
+async function rodar(opcoes = {}) {
+  if (opcoes.aceitarTestador) console.log('Modo "aceitar testador + conectar": vou aceitar o convite (pelo cookie) antes de conectar cada conta.\n');
   const site = lerTexto(path.join(PASTA, 'site.txt'));
   if (!site || !/^https?:\/\//.test(site)) throw new Error('Coloque o link do site no site.txt (começando com https://)');
 
@@ -723,7 +775,7 @@ async function rodar() {
   try {
     for (const [i, conta] of contas.entries()) {
       try {
-        await conectarConta(browser, site, conta);
+        await conectarConta(browser, site, conta, opcoes);
         marcarFeitaConta(conta);
         const u = usuarioDaConta(conta);
         if (u) conectados.push(u);
@@ -775,6 +827,8 @@ async function rodar() {
 // Além do rodar(), exporto os passos para o fluxo "tudo de uma vez" (tudo.js) reaproveitar
 module.exports = {
   rodar,
+  rodarComTestador: () => rodar({ aceitarTestador: true }),
+  aceitarConvite,
   abrirEdge,
   limparLoginInstagram,
   injetarCookies,
