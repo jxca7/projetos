@@ -46,9 +46,9 @@ async function fazerConta(browser, site, conta) {
     }
 
     // 3) conectar no site (a conta já está logada: vai direto para o "Permitir")
-    await conectar.clicarConectar(page, site, nome);
-    await conectar.fazerLogin(page, conta, nome);
-    await conectar.passarTelas(page, nome);
+    const alvo = (await conectar.clicarConectar(page, site, nome, browser)) || page;
+    await conectar.fazerLogin(alvo, conta, nome);
+    await conectar.passarTelas(alvo, nome);
 
     log(nome, 'Foto/bio + conexão OK ✔');
     return { avisos };

@@ -312,15 +312,29 @@ async function clicarSegundoConectar(page, timeout) {
   return false;
 }
 
-async function esperouIrParaInstagram(page, site, timeout) {
+// Espera ir para o Instagram — na MESMA aba OU numa aba NOVA (alguns sites abrem o OAuth em outra aba).
+// Devolve a página onde o Instagram abriu (ou null se não foi).
+async function esperarInstagram(browser, page, site, timeout) {
   const origemSite = new URL(site).origin;
+  const ehInstagram = async (p) => {
+    try {
+      const u = p.url();
+      if (/instagram\.com|facebook\.com/.test(u)) return true;
+      if (!u.startsWith(origemSite) && !/^(about:|chrome:)/.test(u)) return true;
+      return !!(await p.$('input[name="username"], input[name="pass"]').catch(() => null));
+    } catch {
+      return false;
+    }
+  };
   const fim = Date.now() + timeout;
   while (Date.now() < fim) {
-    if (!page.url().startsWith(origemSite)) return true;
-    if (await page.$('input[name="username"]').catch(() => null)) return true;
+    if (await ehInstagram(page)) return page;
+    for (const p of await browser.pages()) {
+      if (p !== page && (await ehInstagram(p))) return p;
+    }
     await esperar(250);
   }
-  return false;
+  return null;
 }
 
 // Descobre o @usuário de uma conta (para casar com a lista do site)
@@ -393,7 +407,9 @@ async function organizarPasta(browser, site, nomePasta, usuarios) {
   return naoAchei;
 }
 
-async function clicarConectar(page, site, nome) {
+// Devolve a página onde o Instagram abriu (pode ser a mesma aba ou uma aba nova).
+async function clicarConectar(page, site, nome, browser) {
+  browser = browser || page.browser();
   await page.goto(site, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await entrarNoSite(page, site, nome);
   await fecharPopup(page, nome);
@@ -413,7 +429,11 @@ async function clicarConectar(page, site, nome) {
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
     if (await clicarSegundoConectar(page, 10000)) {
       log(nome, 'Cliquei em "Conectar Instagram" (na janelinha).');
-      if (await esperouIrParaInstagram(page, site, 15000)) return;
+      const alvo = await esperarInstagram(browser, page, site, 15000);
+      if (alvo) {
+        if (alvo !== page) log(nome, 'O Instagram abriu numa aba nova. Seguindo nela.');
+        return alvo;
+      }
     }
     log(nome, `Não foi para o Instagram, tentando de novo (${tentativa}/3)...`);
     await fecharPopup(page, nome);
@@ -649,9 +669,9 @@ async function conectarConta(browser, site, conta) {
   try {
     await limparLoginInstagram(page);
     // Não coloca o cookie aqui (antes): ele é colocado na tela do Instagram do OAuth, dentro do fazerLogin.
-    await clicarConectar(page, site, nome);
-    await fazerLogin(page, conta, nome);
-    await passarTelas(page, nome);
+    const alvo = (await clicarConectar(page, site, nome, browser)) || page;
+    await fazerLogin(alvo, conta, nome);
+    await passarTelas(alvo, nome);
     log(nome, 'Conectada ✔');
   } catch (err) {
     await salvarPrint(page, nome);
