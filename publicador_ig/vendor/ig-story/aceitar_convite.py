@@ -245,6 +245,20 @@ def aceitar(page, nome):
     return diagnostico(page, nome, "não achei o botão Aceitar", logado)
 
 
+def iniciar_display():
+    """Inicia uma tela virtual (Xvfb) para rodar o Chromium HEADFUL — que é o que
+    o script do PC faz. Sem Xvfb (ou fora do servidor), devolve None e cai no
+    headless. O Instagram serve a tela de erro para headless; headful passa."""
+    try:
+        from pyvirtualdisplay import Display
+
+        d = Display(visible=False, size=(1280, 900))
+        d.start()
+        return d
+    except Exception:
+        return None
+
+
 def main():
     arq = arquivo_da_conta()
     if not arq:
@@ -258,10 +272,13 @@ def main():
 
     nome = arq.stem
     proxy = ler_proxy()
+    display = iniciar_display()
+    headful = display is not None
+    resultado = None
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(
-                headless=True,
+                headless=not headful,  # headful na tela virtual quando há Xvfb
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
                 proxy=proxy,
             )
@@ -274,11 +291,20 @@ def main():
                 ctx.close()
                 browser.close()
     except Exception as e:
-        print(f"✘ {nome}: erro no navegador ({type(e).__name__}: {str(e)[:200]})")
+        print(f"✘ {nome}: erro no navegador ({type(e).__name__}: {str(e)[:200]}) | modo={'headful' if headful else 'headless'}")
         return 1
+    finally:
+        if display:
+            try:
+                display.stop()
+            except Exception:
+                pass
 
+    # Anexa o modo ao diagnóstico de falha, para eu saber se rodou headful.
+    if resultado and resultado[0] == "✘":
+        resultado = f"{resultado} | modo={'headful' if headful else 'headless'}"
     print(resultado)
-    return 0 if resultado[0] in "✔⏭" else 1
+    return 0 if resultado and resultado[0] in "✔⏭" else 1
 
 
 if __name__ == "__main__":

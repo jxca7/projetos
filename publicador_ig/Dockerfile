@@ -5,9 +5,11 @@ FROM node:22-slim AS base
 # openssl é usado pela geração de segredos e pelo Prisma.
 # python3 roda os motores em vendor/ (downloader de Reels e postador de story).
 # fonts-dejavu-core: fonte que o postador de story usa para desenhar a figurinha.
+# xvfb: tela virtual para rodar o Chromium em modo headful (o Instagram serve
+# tela de erro para navegador headless; headful numa tela virtual passa).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-       ffmpeg openssl ca-certificates python3 python3-venv fonts-dejavu-core \
+       ffmpeg openssl ca-certificates python3 python3-venv fonts-dejavu-core xvfb \
   && rm -rf /var/lib/apt/lists/*
 # Dependências Python, num venv isolado (evita o PEP 668 do Debian).
 # - curl_cffi conecta com a "cara" do Chrome (exigência do Instagram para a mídia).
@@ -16,10 +18,11 @@ RUN python3 -m venv /opt/ig-dl \
   && /opt/ig-dl/bin/pip install --no-cache-dir --upgrade pip \
   && /opt/ig-dl/bin/pip install --no-cache-dir \
        "curl_cffi>=0.7" "requests[socks]>=2.28" "instagrapi==3.0.25" "Pillow>=10"
-# Playwright + Chromium: navegador headless no servidor para aceitar o convite do
-# testador (não existe API para isso). Baixa o Chromium e suas libs de sistema.
+# Playwright + Chromium: navegador no servidor para aceitar o convite do testador
+# (não existe API). Roda HEADFUL numa tela virtual (xvfb/pyvirtualdisplay), que é
+# o que o script do PC faz (headless: false). Baixa o Chromium e suas libs.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
-RUN /opt/ig-dl/bin/pip install --no-cache-dir playwright \
+RUN /opt/ig-dl/bin/pip install --no-cache-dir playwright pyvirtualdisplay \
   && /opt/ig-dl/bin/playwright install --with-deps chromium
 # O worker encontra o interpretador e os scripts por estas variáveis.
 ENV IG_DL_PYTHON=/opt/ig-dl/bin/python3 \
