@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
-import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare, enqueuePublish } from "@/lib/queue";
+import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare, enqueuePrepareTest, enqueuePublish } from "@/lib/queue";
 import { isInstagramUrl, isInstagramHandle, normalizeHandle } from "@/lib/media/download";
 import { validateCaption, hasBlockingIssue } from "@/lib/media/validate";
 
@@ -1140,6 +1140,98 @@ export async function clearPrepareJobsAction() {
     await prisma.prepareJob.deleteMany({ where: { id: { in: finalizados } } });
   }
   revalidatePath("/preparar");
+  return { ok: true as const, removed: finalizados.length };
+}
+
+// ---------------------------------------------------------------------------
+// TESTE — Aceitar convite do testador pelo instagrapi (sem navegador)
+// ---------------------------------------------------------------------------
+
+export async function createPrepareTestJobAction(input: {
+  appId: string;
+  proxy?: string;
+  accounts: string;
+}) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const appId = (input.appId ?? "").trim();
+  if (!/^\d+$/.test(appId)) {
+    return { ok: false as const, error: "Informe o ID do app na Meta (só números)." };
+  }
+
+  const contas = parseAccounts(input.accounts);
+  if (contas.length === 0) {
+    return { ok: false as const, error: "Informe ao menos uma conta (usuario:senha ou a linha de combo)." };
+  }
+  if (contas.length > MAX_CONTAS_STORY) {
+    return { ok: false as const, error: `Máximo de ${MAX_CONTAS_STORY} contas por vez.` };
+  }
+
+  const proxy = (input.proxy ?? "").trim();
+  if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy) && !/^[^\s:]+:\d+(:[^\s:]+:[^\s]+)?$/.test(proxy)) {
+    return {
+      ok: false as const,
+      error: "Proxy inválido. Use host:porta, host:porta:usuario:senha ou http://user:senha@host:porta",
+    };
+  }
+
+  const job = await prisma.prepareTestJob.create({
+    data: {
+      workspaceId: ctx.workspaceId,
+      appId,
+      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      createdById: ctx.userId,
+      targets: {
+        create: contas.map((c) => ({
+          username: c.usuario,
+          passwordEnc: encryptSecret(c.senha),
+          comboEnc: c.combo ? encryptSecret(c.combo) : null,
+        })),
+      },
+    },
+    include: { targets: { select: { id: true } } },
+  });
+
+  for (const t of job.targets) await enqueuePrepareTest(t.id);
+
+  revalidatePath("/preparar-teste");
+  return { ok: true as const, jobId: job.id, contas: contas.length };
+}
+
+export async function retryPrepareTestTargetAction(targetId: string) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const target = await prisma.prepareTestTarget.findFirst({
+    where: { id: targetId, job: { workspaceId: ctx.workspaceId } },
+  });
+  if (!target) return { ok: false as const, error: "Não encontrado." };
+
+  await prisma.prepareTestTarget.update({
+    where: { id: target.id },
+    data: { status: "QUEUED", error: null },
+  });
+  await enqueuePrepareTest(target.id);
+  revalidatePath("/preparar-teste");
+  return { ok: true as const };
+}
+
+export async function clearPrepareTestJobsAction() {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const jobs = await prisma.prepareTestJob.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    include: { targets: { select: { status: true } } },
+  });
+  const finalizados = jobs
+    .filter((j) => j.targets.every((t) => t.status === "DONE" || t.status === "FAILED" || t.status === "SKIPPED_2FA"))
+    .map((j) => j.id);
+  if (finalizados.length) {
+    await prisma.prepareTestJob.deleteMany({ where: { id: { in: finalizados } } });
+  }
+  revalidatePath("/preparar-teste");
   return { ok: true as const, removed: finalizados.length };
 }
 

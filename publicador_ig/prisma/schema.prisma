@@ -85,6 +85,7 @@ model Workspace {
   instagramCookie InstagramCookie?
   storyAppJobs    StoryAppJob[]
   prepareJobs     PrepareJob[]
+  prepareTestJobs PrepareTestJob[]
   igSessions      IgSession[]
   subscription   Subscription?
 }
@@ -670,6 +671,46 @@ model PrepareJob {
   targets   PrepareTarget[]
 
   @@index([workspaceId, createdAt])
+}
+
+/// TESTE — Aceitar convite do testador pelo instagrapi (sem navegador).
+/// Fica à parte do PrepareJob para não bagunçar o fluxo de foto/bio/story.
+model PrepareTestJob {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  /// ID do app na Meta (o mesmo do convite). Só dígitos.
+  appId       String
+  proxyEnc    String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   PrepareTestTarget[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Uma conta do teste de convite. Senha e combo cifrados, como no Story.
+model PrepareTestTarget {
+  id       String @id @default(cuid())
+  jobId    String
+
+  username    String
+  passwordEnc String
+  comboEnc    String?
+
+  status   StoryAppStatus @default(QUEUED)
+  error    String?
+  doneAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job PrepareTestJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
 
 /// Uma conta a preparar. Senha e combo cifrados, como no Story.

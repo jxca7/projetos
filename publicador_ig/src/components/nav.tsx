@@ -102,6 +102,14 @@ function NavIcon({ href, className }: { href: string; className?: string }) {
           <path d="m18 3 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
         </svg>
       );
+    case "/preparar-teste":
+      return (
+        <svg {...common}>
+          <circle cx="11" cy="8" r="4" />
+          <path d="M4.5 21a7 7 0 0 1 12 0" />
+          <path d="M16 15.5v4M14 17.5h4" />
+        </svg>
+      );
     case "/massa":
       return (
         <svg {...common}>

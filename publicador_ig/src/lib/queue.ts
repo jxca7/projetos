@@ -7,6 +7,7 @@ export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_IMPORT = "import";
 export const QUEUE_STORY_APP = "story-app";
 export const QUEUE_PREPARE = "prepare";
+export const QUEUE_PREPARE_TEST = "prepare-test";
 
 export interface PublishJobData {
   targetId: string;
@@ -36,6 +37,10 @@ export interface PrepareJobData {
   targetId: string;
 }
 
+export interface PrepareTestJobData {
+  targetId: string;
+}
+
 const globalForQueues = globalThis as unknown as {
   publishQueue?: Queue<PublishJobData>;
   insightsQueue?: Queue<InsightsJobData>;
@@ -43,6 +48,7 @@ const globalForQueues = globalThis as unknown as {
   importQueue?: Queue<ImportJobData>;
   storyAppQueue?: Queue<StoryAppJobData>;
   prepareQueue?: Queue<PrepareJobData>;
+  prepareTestQueue?: Queue<PrepareTestJobData>;
 };
 
 /**
@@ -234,6 +240,39 @@ export async function enqueuePrepare(targetId: string): Promise<void> {
     {
       jobId,
       attempts: 1, // login/ação não repete sozinho (evita lockout)
+      removeOnComplete: { age: 24 * 3600, count: 1_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
+    },
+  );
+}
+
+export function prepareTestQueue(): Queue<PrepareTestJobData> {
+  if (!globalForQueues.prepareTestQueue) {
+    globalForQueues.prepareTestQueue = new Queue<PrepareTestJobData>(QUEUE_PREPARE_TEST, {
+      connection: redis(),
+    });
+  }
+  return globalForQueues.prepareTestQueue;
+}
+
+/** Enfileira o TESTE de aceitar convite de uma conta. Um job por target. */
+export async function enqueuePrepareTest(targetId: string): Promise<void> {
+  const q = prepareTestQueue();
+  const jobId = `prepare-test-${targetId}`;
+  const anterior = await q.getJob(jobId);
+  if (anterior) {
+    try {
+      await anterior.remove();
+    } catch {
+      /* em execução: o processador checa o status no banco */
+    }
+  }
+  await q.add(
+    "prepare-test-invite",
+    { targetId },
+    {
+      jobId,
+      attempts: 1,
       removeOnComplete: { age: 24 * 3600, count: 1_000 },
       removeOnFail: { age: 7 * 24 * 3600 },
     },

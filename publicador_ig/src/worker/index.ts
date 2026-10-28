@@ -8,6 +8,7 @@ import {
   QUEUE_PUBLISH,
   QUEUE_STORY_APP,
   QUEUE_PREPARE,
+  QUEUE_PREPARE_TEST,
   maintenanceQueue,
   type ImportJobData,
   type InsightsJobData,
@@ -15,6 +16,7 @@ import {
   type PublishJobData,
   type StoryAppJobData,
   type PrepareJobData,
+  type PrepareTestJobData,
 } from "@/lib/queue";
 import { applyOutcome, processPublishTarget } from "./publish";
 import { processInsights } from "./insights";
@@ -22,6 +24,7 @@ import { processMaintenance } from "./maintenance";
 import { processImport } from "./import";
 import { processStoryApp } from "./story-app";
 import { processPrepare } from "./prepare";
+import { processPrepareTest } from "./prepare-test";
 import { env } from "@/lib/env";
 
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? "8");
@@ -86,6 +89,13 @@ async function main() {
     { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
   );
 
+  // TESTE: aceitar convite pelo instagrapi. Uma conta por vez e espaçada.
+  const prepareTestWorker = new Worker<PrepareTestJobData>(
+    QUEUE_PREPARE_TEST,
+    async (job) => processPrepareTest(job.data),
+    { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
+  );
+
   publishWorker.on("completed", (job, result) => {
     const r = result as { kind: string; reason?: string; delayMs?: number } | undefined;
     if (r?.kind === "retry") {
@@ -120,6 +130,12 @@ async function main() {
   prepareWorker.on("failed", (job, err) => {
     log(`preparar ${job?.data.targetId} falhou: ${err.message}`);
   });
+  prepareTestWorker.on("completed", (job) => {
+    log(`preparar-teste ${job.data.targetId}: processado`);
+  });
+  prepareTestWorker.on("failed", (job, err) => {
+    log(`preparar-teste ${job?.data.targetId} falhou: ${err.message}`);
+  });
 
   // Rotinas periodicas.
   const mq = maintenanceQueue();
@@ -148,6 +164,7 @@ async function main() {
       importWorker.close(),
       storyAppWorker.close(),
       prepareWorker.close(),
+      prepareTestWorker.close(),
     ]);
     process.exit(0);
   };
