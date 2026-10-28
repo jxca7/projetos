@@ -26,6 +26,7 @@ TXT_CONVITES = ["Convites do testador", "Convites de testador", "Tester invites"
 TXT_ACEITAR = ["Aceitar", "Accept"]
 TXT_REMOVER = ["Remover", "Remove"]
 TXT_SEM = ["não tem convites", "nenhum convite", "no tester invites", "don't have any", "não tem nenhum"]
+TXT_ERRO = ["recarregar página", "recarregar pagina", "reload page", "algo deu errado", "something went wrong"]
 
 
 def arquivo_da_conta():
@@ -131,6 +132,11 @@ def esta_logado(page):
         return False
 
 
+def tela_de_erro(page):
+    """A tela 'Algo deu errado — Recarregar página' do Instagram."""
+    return pagina_contem(page, TXT_ERRO) and not pagina_contem(page, TXT_CONVITES)
+
+
 def rolar(page):
     try:
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -183,10 +189,27 @@ def aceitar(page, nome):
     if not logado:
         return diagnostico(page, nome, "cookie não autenticou no navegador", False)
 
-    # 2) Abre a tela dos apps/convites.
-    page.goto(URL_MANAGE, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(3000)
-    rolar(page)
+    # 2) Abre a tela dos apps/convites. O Instagram às vezes serve a tela de erro
+    #    "Algo deu errado — Recarregar página"; nesse caso recarrega e tenta de novo.
+    for tentativa in range(4):
+        if tentativa == 0:
+            page.goto(URL_MANAGE, wait_until="domcontentloaded", timeout=60000)
+        else:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                page.goto(URL_MANAGE, wait_until="domcontentloaded", timeout=60000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2500)
+        rolar(page)
+        if pagina_contem(page, TXT_CONVITES):
+            break
+        if not tela_de_erro(page):
+            break  # carregou (sem erro), só não é a tela com "Convites" — tenta o Editar
+        page.wait_for_timeout(2500)  # é a tela de erro: espera antes de recarregar
 
     # 3) Se não mostrar "Convites" direto, navega pelo Editar → Permissões → Apps e sites.
     if not pagina_contem(page, TXT_CONVITES):
