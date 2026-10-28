@@ -427,13 +427,16 @@ async function clicarConectar(page, site, nome, browser) {
   await pausaHumana(1500, 2500);
 
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
-    if (await clicarSegundoConectar(page, 10000)) {
+    // Às vezes o login do Instagram já abre no primeiro clique, sem o segundo botão (na janelinha).
+    // Primeiro já vemos se o Instagram abriu em qualquer aba.
+    let alvo = await esperarInstagram(browser, page, site, 2000);
+    if (!alvo && (await clicarSegundoConectar(page, 10000))) {
       log(nome, 'Cliquei em "Conectar Instagram" (na janelinha).');
-      const alvo = await esperarInstagram(browser, page, site, 15000);
-      if (alvo) {
-        if (alvo !== page) log(nome, 'O Instagram abriu numa aba nova. Seguindo nela.');
-        return alvo;
-      }
+      alvo = await esperarInstagram(browser, page, site, 15000);
+    }
+    if (alvo) {
+      if (alvo !== page) log(nome, 'O Instagram abriu numa aba nova. Seguindo nela.');
+      return alvo;
     }
     log(nome, `Não foi para o Instagram, tentando de novo (${tentativa}/3)...`);
     await fecharPopup(page, nome);
