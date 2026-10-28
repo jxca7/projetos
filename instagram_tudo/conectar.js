@@ -665,6 +665,49 @@ async function passarTelas(page, nome) {
   if (/instagram\.com|facebook\.com/.test(page.url())) throw new Error('Cliquei em "Permitir", mas não voltou para o site');
 }
 
+// Clica no MENOR elemento clicável cujo texto contém TODAS as palavras (sem acento, minúsculo).
+// Mais tolerante que o clicarTexto (que exige o texto exato) — bom para abas/botões que mudam de nome.
+async function clicarContendo(page, grupos, timeout = 6000) {
+  const fim = Date.now() + timeout;
+  while (Date.now() < fim) {
+    const handle = await page
+      .evaluateHandle((grupos) => {
+        const limpar = (t) =>
+          (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+        const visivel = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const topo = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return topo && (el.contains(topo) || topo.contains(el));
+        };
+        const bate = (txt) => grupos.some((palavras) => palavras.every((p) => txt.includes(limpar(p))));
+        const cands = [...document.querySelectorAll('button, a, [role="button"], [role="tab"], [tabindex], label, span, div')].filter(
+          (el) => {
+            const t = limpar(el.innerText);
+            return t && t.length <= 40 && bate(t) && visivel(el); // <=40 evita parágrafos longos
+          },
+        );
+        // prefere os que são clicáveis (botão/aba/link) ou têm ancestral clicável
+        const clicaveis = cands.filter((el) =>
+          el.closest('button, a, [role="button"], [role="tab"], [role="radio"], [tabindex], label'),
+        );
+        const lista = clicaveis.length ? clicaveis : cands;
+        // pega o mais interno (menor) que ainda bate
+        const internos = lista.filter((el) => !lista.some((o) => o !== el && el.contains(o)));
+        return internos[internos.length - 1] || lista[lista.length - 1] || null;
+      }, grupos)
+      .catch(() => null);
+    const el = handle && handle.asElement();
+    if (el) {
+      await pausaHumana(400, 900);
+      await cliqueHumano(page, el);
+      return true;
+    }
+    await esperar(250);
+  }
+  return false;
+}
+
 // Entra na conta (pelo cookie) e aceita o convite de "Testador do Instagram".
 // É "best-effort": se não achar convite pendente, só avisa e segue (não dá erro).
 async function aceitarConvite(page, nome) {
@@ -683,23 +726,27 @@ async function aceitarConvite(page, nome) {
     return false;
   }
 
-  // Alguns layouts têm uma aba/seção "Convites de testador"; clica se existir.
-  await clicarTexto(
-    page,
-    ['Convites de testador', 'Tester Invites', 'Convites de teste', 'Convites de testadores', 'Convites'],
-    4000,
-  ).catch(() => {});
-  await pausaHumana(1200, 2200);
+  // Clica na aba "Convites do testador" (o nome exato pode variar; procuro por "convites" + "testador").
+  const abriuAba =
+    (await clicarContendo(page, [['convites', 'testador'], ['tester', 'invites']], 6000)) ||
+    (await clicarTexto(page, ['Convites do testador', 'Convites de testador', 'Tester Invites'], 3000).catch(() => false));
+  if (abriuAba) {
+    log(nome, 'Abri a aba "Convites do testador".');
+    await pausaHumana(1500, 2500);
+  }
 
   // Procura e clica em "Aceitar" (pode haver mais de um convite).
   let aceitou = 0;
   for (let i = 0; i < 8; i++) {
-    if (!(await clicarTexto(page, ['Aceitar', 'Accept'], 4000))) break;
+    const clicou =
+      (await clicarContendo(page, [['aceitar'], ['accept']], 4000)) ||
+      (await clicarTexto(page, ['Aceitar', 'Accept'], 2000).catch(() => false));
+    if (!clicou) break;
     aceitou++;
-    await pausaHumana(1200, 2200);
+    await pausaHumana(1500, 2500);
     // Confirmação, se aparecer um pop-up.
-    await clicarTexto(page, ['Aceitar', 'Accept', 'Confirmar', 'Confirm', 'OK'], 2500).catch(() => {});
-    await pausaHumana(1200, 2200);
+    await clicarContendo(page, [['aceitar'], ['accept'], ['confirmar'], ['confirm'], ['ok']], 2500).catch(() => {});
+    await pausaHumana(1500, 2500);
   }
 
   if (aceitou) log(nome, `Convite(s) de testador aceito(s): ${aceitou}.`);
