@@ -997,12 +997,16 @@ export async function clearStoryJobsAction() {
 }
 
 // ---------------------------------------------------------------------------
-// Preparar conta: trocar foto e/ou bio (pelo app, server-side)
+// Preparar conta: trocar foto, bio e postar story (pelo app, server-side)
 // ---------------------------------------------------------------------------
 
 export async function createPrepareJobAction(input: {
   mediaId?: string;
   bio?: string;
+  storyMediaId?: string;
+  storyLink?: string;
+  storyLinkLabel?: string;
+  storyHighlight?: string;
   proxy?: string;
   acceptInvite?: boolean;
   accounts: string;
@@ -1044,8 +1048,24 @@ export async function createPrepareJobAction(input: {
     imageUrl = asset.publicUrl;
   }
 
-  if (!imageKey && !bio && !acceptInvite) {
-    return { ok: false as const, error: "Escolha uma foto, uma bio, e/ou aceitar o convite." };
+  let storyImageKey: string | null = null;
+  let storyImageUrl: string | null = null;
+  if (input.storyMediaId) {
+    const asset = await prisma.mediaAsset.findFirst({
+      where: { id: input.storyMediaId, workspaceId: ctx.workspaceId },
+    });
+    if (!asset) return { ok: false as const, error: "Imagem do story não encontrada nesta conta." };
+    if (asset.kind !== "IMAGE") return { ok: false as const, error: "O story aqui usa uma imagem (JPG/PNG)." };
+    storyImageKey = asset.storageKey;
+    storyImageUrl = asset.publicUrl;
+  }
+  const storyLink = storyImageKey ? (input.storyLink ?? "").trim() : "";
+  if (storyLink && !/^https?:\/\//i.test(storyLink)) {
+    return { ok: false as const, error: "O link do story precisa começar com http:// ou https://" };
+  }
+
+  if (!imageKey && !bio && !storyImageKey && !acceptInvite) {
+    return { ok: false as const, error: "Escolha uma foto, uma bio, um story e/ou aceitar o convite." };
   }
 
   const proxy = (input.proxy ?? "").trim();
@@ -1062,6 +1082,11 @@ export async function createPrepareJobAction(input: {
       imageKey,
       imageUrl,
       bio: bio || null,
+      storyImageKey,
+      storyImageUrl,
+      storyLink: storyLink || null,
+      storyLinkLabel: storyImageKey ? (input.storyLinkLabel ?? "").trim() || null : null,
+      storyHighlight: storyImageKey ? (input.storyHighlight ?? "").trim() || null : null,
       acceptInvite,
       proxyEnc: proxy ? encryptSecret(proxy) : null,
       createdById: ctx.userId,

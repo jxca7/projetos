@@ -33,13 +33,20 @@ export interface PrepareInput {
   combo?: string | null;
   /** Bytes da foto de perfil. Opcional. */
   imageBytes?: Buffer | null;
-  /** Nova bio. Opcional. (Ao menos uma das duas tem de vir.) */
+  /** Nova bio. Opcional. (Ao menos foto, bio ou story tem de vir.) */
   bio?: string | null;
+  /** Story postado na mesma sessão, depois da foto/bio. Opcional. */
+  storyBytes?: Buffer | null;
+  storyLink?: string | null;
+  /** Texto que aparece na figurinha de link. */
+  storyLinkLabel?: string | null;
+  /** Nome do destaque (cria se não existir). Vazio = não destaca. */
+  storyHighlight?: string | null;
   proxy?: string | null;
   sessionIn?: string | null;
 }
 
-/** Prepara UMA conta (foto e/ou bio). Reusa o motor/sessão do Story. */
+/** Prepara UMA conta (foto, bio e/ou story) numa sessão só. Reusa o motor/sessão do Story. */
 export async function prepareAccount(input: PrepareInput): Promise<PrepareResult> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `igprep-${crypto.randomBytes(6).toString("hex")}-`));
   const prepScript = path.join(dir, "preparar.py");
@@ -63,6 +70,15 @@ export async function prepareAccount(input: PrepareInput): Promise<PrepareResult
     await fs.writeFile(path.join(dir, "foto.jpg"), input.imageBytes);
   }
   await fs.writeFile(path.join(dir, "bio.txt"), input.bio?.trim() ?? "", "utf8");
+  if (input.storyBytes && input.storyBytes.length > 0) {
+    await fs.writeFile(path.join(dir, "story.jpg"), input.storyBytes);
+    await fs.writeFile(
+      path.join(dir, "link.txt"),
+      [input.storyLink?.trim() ?? "", input.storyLinkLabel?.trim() ?? ""].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(path.join(dir, "destaque.txt"), input.storyHighlight?.trim() ?? "", "utf8");
+  }
   if (input.proxy?.trim()) {
     await fs.writeFile(path.join(dir, "proxy.txt"), input.proxy.trim(), { mode: 0o600 });
   }
@@ -108,9 +124,11 @@ function interpretar(username: string, stdout: string, stderr: string): Omit<Pre
   const resumo = linhas.find((l) => /^[✔✘⏭]/.test(l));
 
   if (resumo?.startsWith("✔")) {
+    const message = resumo.replace(/^✔\s*/, "").replace(new RegExp(`^${username}:?\\s*`, "i"), "") || "Pronto.";
+    // Parcial (ex.: "foto, bio ok; problema em story: ..."): marca como falha para aparecer na lista.
     return {
-      outcome: "DONE",
-      message: resumo.replace(/^✔\s*/, "").replace(new RegExp(`^${username}:?\\s*`, "i"), "") || "Pronto.",
+      outcome: message.includes("; problema em") ? "FAILED" : "DONE",
+      message,
       stdout,
       stderr,
     };

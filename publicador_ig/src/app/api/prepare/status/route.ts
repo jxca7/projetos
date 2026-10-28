@@ -23,6 +23,8 @@ export async function GET() {
       id: j.id,
       imageUrl: j.imageUrl,
       bio: j.bio,
+      storyImageUrl: j.storyImageUrl,
+      storyLink: j.storyLink,
       createdAt: j.createdAt.toISOString(),
       targets: j.targets,
     })),

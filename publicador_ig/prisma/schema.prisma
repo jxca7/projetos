@@ -641,7 +641,7 @@ model IgSession {
   @@unique([workspaceId, username])
 }
 
-/// Preparar conta: trocar foto e/ou bio pelo app (instagrapi), server-side.
+/// Preparar conta: trocar foto, bio e postar story pelo app (instagrapi), server-side.
 /// Uma foto/bio, aplicada a várias contas. Reusa o mesmo motor/sessão do Story.
 model PrepareJob {
   id          String @id @default(cuid())
@@ -650,10 +650,17 @@ model PrepareJob {
   /// Foto do perfil (guardada no storage). Opcional.
   imageKey    String?
   imageUrl    String?
-  /// Bio a aplicar. Opcional. (Pelo menos uma de foto/bio/convite é obrigatória.)
+  /// Bio a aplicar. Opcional. (Pelo menos uma de foto/bio/story/convite é obrigatória.)
   bio         String?
   /// Aceitar também o convite do testador (navegador headless; exige combo).
   acceptInvite Boolean @default(false)
+  /// Story postado na MESMA sessão, depois da foto/bio. Opcional.
+  /// Link/rótulo da figurinha e destaque funcionam como no StoryAppJob.
+  storyImageKey  String?
+  storyImageUrl  String?
+  storyLink      String?
+  storyLinkLabel String?
+  storyHighlight String?
   proxyEnc    String?
 
   createdById String?

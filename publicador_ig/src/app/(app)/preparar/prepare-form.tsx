@@ -21,6 +21,8 @@ export interface PrepareJob {
   id: string;
   imageUrl: string | null;
   bio: string | null;
+  storyImageUrl: string | null;
+  storyLink: string | null;
   createdAt: string;
   targets: PrepareTarget[];
 }
@@ -41,6 +43,7 @@ type Msg = { tone: "ok" | "warn" | "danger"; text: string } | null;
 
 export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   const inputFile = useRef<HTMLInputElement>(null);
+  const inputStory = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<PrepareJob[]>(initialJobs);
   const [msg, setMsg] = useState<Msg>(null);
 
@@ -48,6 +51,12 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [enviandoImg, setEnviandoImg] = useState(false);
   const [bio, setBio] = useState("");
+  const [storyMediaId, setStoryMediaId] = useState<string | null>(null);
+  const [storyPreview, setStoryPreview] = useState<string | null>(null);
+  const [enviandoStory, setEnviandoStory] = useState(false);
+  const [storyLink, setStoryLink] = useState("");
+  const [storyLinkLabel, setStoryLinkLabel] = useState("");
+  const [storyHighlight, setStoryHighlight] = useState("");
   const [acceptInvite, setAcceptInvite] = useState(false);
   const [proxy, setProxy] = useState("");
   const [accounts, setAccounts] = useState("");
@@ -72,10 +81,14 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
     return () => clearInterval(t);
   }, [temPendente, puxar]);
 
-  async function enviarImagem(file: File | undefined) {
+  /** Sobe a imagem para a biblioteca. `alvo` diz se é a foto do perfil ou a do story. */
+  async function enviarImagem(file: File | undefined, alvo: "foto" | "story") {
     if (!file) return;
+    const story = alvo === "story";
+    const setEnviando = story ? setEnviandoStory : setEnviandoImg;
+    const input = story ? inputStory : inputFile;
     setMsg(null);
-    setEnviandoImg(true);
+    setEnviando(true);
     try {
       const form = new FormData();
       form.set("file", file);
@@ -83,20 +96,25 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
       const res = await fetch("/api/media/upload", { method: "POST", body: form });
       const json = await res.json();
       if (!res.ok) {
-        setMsg({ tone: "danger", text: json.error ?? "Falha ao enviar a foto." });
+        setMsg({ tone: "danger", text: json.error ?? "Falha ao enviar a imagem." });
         return;
       }
-      setMediaId(json.id);
-      setPreview(json.publicUrl);
+      if (story) {
+        setStoryMediaId(json.id);
+        setStoryPreview(json.publicUrl);
+      } else {
+        setMediaId(json.id);
+        setPreview(json.publicUrl);
+      }
     } finally {
-      setEnviandoImg(false);
-      if (inputFile.current) inputFile.current.value = "";
+      setEnviando(false);
+      if (input.current) input.current.value = "";
     }
   }
 
   function preparar() {
-    if (!mediaId && !bio.trim() && !acceptInvite) {
-      setMsg({ tone: "warn", text: "Escolha uma foto, uma bio, e/ou aceitar o convite." });
+    if (!mediaId && !bio.trim() && !storyMediaId && !acceptInvite) {
+      setMsg({ tone: "warn", text: "Escolha uma foto, uma bio, um story e/ou aceitar o convite." });
       return;
     }
     if (!accounts.trim()) {
@@ -105,7 +123,17 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
     }
     setMsg(null);
     startTransition(async () => {
-      const r = await createPrepareJobAction({ mediaId: mediaId ?? undefined, bio, proxy, acceptInvite, accounts });
+      const r = await createPrepareJobAction({
+        mediaId: mediaId ?? undefined,
+        bio,
+        storyMediaId: storyMediaId ?? undefined,
+        storyLink,
+        storyLinkLabel,
+        storyHighlight,
+        proxy,
+        acceptInvite,
+        accounts,
+      });
       if (!r.ok) {
         setMsg({ tone: "danger", text: r.error });
         return;
@@ -135,7 +163,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   return (
     <div className="space-y-5">
       <Notice tone="warn">
-        Troca foto/bio logando com <strong>a conta</strong> (combo com cookie entra sem 2FA) — use só
+        Troca foto/bio e posta o story logando com <strong>a conta</strong> (combo com cookie entra sem 2FA) — use só
         nas suas contas, em volume moderado. Dados cifrados no servidor.
       </Notice>
 
@@ -165,7 +193,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
               type="file"
               accept="image/jpeg,image/png"
               className="hidden"
-              onChange={(e) => void enviarImagem(e.target.files?.[0])}
+              onChange={(e) => void enviarImagem(e.target.files?.[0], "foto")}
             />
           </div>
 
@@ -181,6 +209,79 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
               className="w-full"
             />
             <span className="block text-right text-[11px] text-faint">{bio.length}/150</span>
+          </div>
+        </div>
+
+        {/* Story — postado na mesma sessão, depois da foto/bio */}
+        <div className="flex flex-wrap gap-4 border-t border-border pt-4">
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-muted">Story (opcional)</span>
+            <button
+              type="button"
+              onClick={() => inputStory.current?.click()}
+              className="grid h-36 w-20 place-items-center overflow-hidden rounded-[var(--r-sm)] border-2 border-dashed border-border-strong bg-surface-2 text-faint transition-colors hover:border-accent"
+            >
+              {storyPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={storyPreview} alt="" className="size-full object-cover" />
+              ) : enviandoStory ? (
+                <span className="text-xs">Enviando…</span>
+              ) : (
+                <span className="px-2 text-center text-[11px]">Escolher imagem</span>
+              )}
+            </button>
+            <input
+              ref={inputStory}
+              type="file"
+              accept="image/jpeg,image/png"
+              className="hidden"
+              onChange={(e) => void enviarImagem(e.target.files?.[0], "story")}
+            />
+            {storyMediaId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStoryMediaId(null);
+                  setStoryPreview(null);
+                }}
+                className="block text-[11px] text-faint underline-offset-2 hover:text-muted hover:underline"
+              >
+                Remover
+              </button>
+            ) : null}
+          </div>
+
+          <div className="min-w-[14rem] flex-1 space-y-2">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted">Link da figurinha (opcional)</span>
+              <input
+                value={storyLink}
+                onChange={(e) => setStoryLink(e.target.value)}
+                placeholder="https://..."
+                disabled={!storyMediaId}
+                className="w-full text-xs"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted">Texto da figurinha (opcional)</span>
+              <input
+                value={storyLinkLabel}
+                onChange={(e) => setStoryLinkLabel(e.target.value)}
+                placeholder="Vazio = o domínio do link"
+                disabled={!storyMediaId}
+                className="w-full text-xs"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted">Destaque (opcional)</span>
+              <input
+                value={storyHighlight}
+                onChange={(e) => setStoryHighlight(e.target.value)}
+                placeholder="Nome do destaque (cria se não existir)"
+                disabled={!storyMediaId}
+                className="w-full text-xs"
+              />
+            </label>
           </div>
         </div>
 
@@ -225,7 +326,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
         </label>
 
         <div className="flex justify-end">
-          <Button type="button" disabled={pending || enviandoImg} onClick={preparar}>
+          <Button type="button" disabled={pending || enviandoImg || enviandoStory} onClick={preparar}>
             Preparar contas
           </Button>
         </div>
@@ -259,6 +360,9 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
                     {job.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={job.imageUrl} alt="" className="size-full object-cover" />
+                    ) : job.storyImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={job.storyImageUrl} alt="" className="size-full object-cover" />
                     ) : (
                       <div className="grid size-full place-items-center text-[10px] text-faint">bio</div>
                     )}
@@ -268,6 +372,10 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
                       {job.imageUrl ? <span className="text-accent">foto</span> : null}
                       {job.imageUrl && job.bio ? " · " : ""}
                       {job.bio ? <span className="text-muted">bio: {job.bio}</span> : null}
+                      {job.storyImageUrl && (job.imageUrl || job.bio) ? " · " : ""}
+                      {job.storyImageUrl ? (
+                        <span className="text-accent">story{job.storyLink ? " com link" : ""}</span>
+                      ) : null}
                     </p>
                     <p className="text-faint">
                       {ok}/{job.targets.length} pronto(s)

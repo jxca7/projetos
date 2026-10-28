@@ -8,7 +8,7 @@ import type { PrepareJobData } from "@/lib/queue";
 
 type StepOutcome = "DONE" | "FAILED" | "SKIPPED_2FA";
 
-/** Junta os desfechos dos passos (foto/bio e convite) num status só. */
+/** Junta os desfechos dos passos (foto/bio/story e convite) num status só. */
 function combinar(steps: { label: string; outcome: StepOutcome; message: string }[]): {
   status: StepOutcome;
   error: string | null;
@@ -27,7 +27,7 @@ function combinar(steps: { label: string; outcome: StepOutcome; message: string 
   return { status, error: error.slice(0, 400) };
 }
 
-/** Lê a foto do perfil: do disco (driver local) ou pela URL pública. */
+/** Lê uma imagem do storage (foto do perfil ou story): do disco (driver local) ou pela URL pública. */
 async function lerImagem(imageKey: string | null, imageUrl: string | null): Promise<Buffer | null> {
   if (!imageKey || !imageUrl) return null;
   const drv = storage();
@@ -35,7 +35,7 @@ async function lerImagem(imageKey: string | null, imageUrl: string | null): Prom
     return fs.readFile(drv.localPath(imageKey));
   }
   const res = await fetch(imageUrl);
-  if (!res.ok) throw new PrepareError("Não consegui ler a foto.");
+  if (!res.ok) throw new PrepareError("Não consegui ler a imagem.");
   return Buffer.from(await res.arrayBuffer());
 }
 
@@ -57,9 +57,10 @@ export async function processPrepare(data: PrepareJobData): Promise<void> {
     const proxy = target.job.proxyEnc ? decryptSecret(target.job.proxyEnc) : null;
     const steps: { label: string; outcome: StepOutcome; message: string }[] = [];
 
-    // Passo 1 — foto e/ou bio (instagrapi), quando pedido.
-    if (target.job.imageKey || target.job.bio) {
+    // Passo 1 — foto, bio e story (instagrapi), numa sessão só, quando pedido.
+    if (target.job.imageKey || target.job.bio || target.job.storyImageKey) {
       const imageBytes = await lerImagem(target.job.imageKey, target.job.imageUrl);
+      const storyBytes = await lerImagem(target.job.storyImageKey, target.job.storyImageUrl);
       const sessao = await prisma.igSession.findUnique({
         where: { workspaceId_username: { workspaceId: target.job.workspaceId, username: target.username } },
       });
@@ -69,6 +70,10 @@ export async function processPrepare(data: PrepareJobData): Promise<void> {
         combo,
         imageBytes,
         bio: target.job.bio,
+        storyBytes,
+        storyLink: target.job.storyLink,
+        storyLinkLabel: target.job.storyLinkLabel,
+        storyHighlight: target.job.storyHighlight,
         proxy,
         sessionIn: sessao ? decryptSecret(sessao.settingsEnc) : null,
       });
@@ -80,7 +85,7 @@ export async function processPrepare(data: PrepareJobData): Promise<void> {
           update: { settingsEnc },
         });
       }
-      steps.push({ label: "foto/bio", outcome: result.outcome, message: result.message });
+      steps.push({ label: "perfil/story", outcome: result.outcome, message: result.message });
     }
 
     // Passo 2 — aceitar o convite do testador (navegador headless). Exige combo.

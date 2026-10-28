@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Prepara UMA conta: troca a foto e/ou a bio pelo instagrapi.
+"""Prepara UMA conta: troca a foto, a bio e posta um story pelo instagrapi.
 
 Reaproveita o login/sessão/combo do postar_story.py (mesma pasta). O worker monta
 uma pasta temporária com: o arquivo da conta (cookies/<user>.txt com o combo, OU
 contas.txt com usuario:senha), foto.jpg (opcional), bio.txt (opcional),
-proxy.txt (opcional) e sessoes/ (a sessão salva, para reusar e evitar 2FA).
+story.jpg + link.txt + destaque.txt (opcional, iguais ao do Story), proxy.txt
+(opcional) e sessoes/ (a sessão salva, para reusar e evitar 2FA).
+
+Tudo numa sessão só: login -> esquenta -> foto -> bio -> story -> salva a sessão.
 
 Saída: uma linha começando com ✔ (ok), ⏭ (2FA/verificação) ou ✘ (erro).
 """
+import random
 import sys
+import time
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -19,9 +24,14 @@ from postar_story import (  # noqa: E402
     PASTA,
     PASTA_COOKIES,
     PASTA_SESSOES,
+    EXT_FOTO,
     log,
     ler_texto,
     ler_proxy,
+    ler_link,
+    ler_destaque,
+    montar_story,
+    enviar_story,
     login_por_cookie,
     login_por_senha,
 )
@@ -30,6 +40,15 @@ from postar_story import (  # noqa: E402
 def achar_foto():
     for ext in (".jpg", ".jpeg", ".png", ".webp"):
         p = PASTA / f"foto{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def achar_story():
+    # Só story.<ext>: a foto de perfil (foto.jpg) fica na mesma pasta.
+    for ext in EXT_FOTO:
+        p = PASTA / f"story{ext}"
         if p.exists():
             return p
     return None
@@ -85,8 +104,9 @@ def main():
     foto = achar_foto()
     bio = ler_texto(PASTA / "bio.txt")
     bio = bio.strip() if bio else None
-    if not foto and not bio:
-        print("✘ nada para fazer: nem foto nem bio informadas")
+    story = achar_story()
+    if not foto and not bio and not story:
+        print("✘ nada para fazer: nem foto, nem bio, nem story informados")
         return 1
 
     proxy = ler_proxy()
@@ -143,6 +163,22 @@ def main():
         except Exception as e:
             erros.append(f"bio: {e}")
             log(nome, f"Bio falhou: {e}")
+    if story:
+        if feitos:
+            time.sleep(random.uniform(4, 10))  # respiro entre ações, como gente
+        try:
+            link, rotulo = ler_link()
+            imagem_jpg, area = montar_story(story, rotulo if link else None)
+            enviar_story(cl, nome, imagem_jpg, link, area, ler_destaque(), arquivo_sessao)
+            feitos.append("story")
+        except Exception as e:
+            erros.append(f"story: {e}")
+            log(nome, f"Story falhou: {e}")
+
+    try:
+        cl.dump_settings(arquivo_sessao)
+    except Exception:
+        pass
 
     if feitos and not erros:
         print(f"✔ {nome}: {', '.join(feitos)} ok")
