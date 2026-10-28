@@ -102,6 +102,15 @@ function NavIcon({ href, className }: { href: string; className?: string }) {
           <path d="m18 3 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
         </svg>
       );
+    case "/massa":
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

@@ -28,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const items: NavItem[] = [
     { href: "/", label: "Visão geral", short: "Início", group: "Principal" },
     { href: "/publicar", label: "Publicar", short: "Publicar", group: "Publicar" },
+    { href: "/massa", label: "Postagem em Massa", short: "Massa", group: "Publicar" },
     { href: "/fila", label: "Fila", short: "Fila", group: "Publicar" },
     { href: "/biblioteca", label: "Biblioteca", short: "Mídia", group: "Publicar" },
     { href: "/story-link", label: "Story + link", short: "Story", group: "Publicar" },

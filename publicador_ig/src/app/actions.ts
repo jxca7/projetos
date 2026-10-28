@@ -7,8 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
-import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare } from "@/lib/queue";
+import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare, enqueuePublish } from "@/lib/queue";
 import { isInstagramUrl, isInstagramHandle, normalizeHandle } from "@/lib/media/download";
+import { validateCaption, hasBlockingIssue } from "@/lib/media/validate";
 
 /** Garante que o recurso pertence ao workspace do usuário logado. */
 async function ownedPost(postId: string, workspaceId: string) {
@@ -1115,4 +1116,139 @@ export async function clearPrepareJobsAction() {
   }
   revalidatePath("/preparar");
   return { ok: true as const, removed: finalizados.length };
+}
+
+// ---------------------------------------------------------------------------
+// Postagem em Massa: várias mídias × várias contas, pela API oficial
+// ---------------------------------------------------------------------------
+
+const MAX_MIDIAS_MASSA = 10;
+
+const bulkPostSchema = z.object({
+  type: z.enum(["REEL", "IMAGE", "STORY", "CAROUSEL"]),
+  mediaIds: z.array(z.string().min(1)).min(1).max(MAX_MIDIAS_MASSA),
+  accountIds: z.array(z.string().min(1)).min(1),
+  accountOrder: z.enum(["sequencial", "aleatorio"]).default("sequencial"),
+  shareToFeed: z.boolean().default(true),
+  caption: z.string().max(2200).default(""),
+  intervalSeconds: z.coerce.number().int().min(0).max(600).default(180),
+});
+
+export type BulkPostInput = z.input<typeof bulkPostSchema>;
+
+/** Embaralha uma cópia (Fisher–Yates). */
+function embaralhar<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+export async function createBulkPostAction(input: BulkPostInput) {
+  const ctx = await requireContext();
+  if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão para publicar." };
+
+  const parsed = bulkPostSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues.map((i) => i.message).join("; ") };
+  }
+  const d = parsed.data;
+
+  // Legenda (uma só para todos).
+  if (hasBlockingIssue(validateCaption(d.caption))) {
+    return { ok: false as const, error: "Legenda inválida (tamanho ou nº de hashtags)." };
+  }
+
+  // Mídias do workspace, na ORDEM escolhida pela pessoa.
+  const media = await prisma.mediaAsset.findMany({
+    where: { id: { in: d.mediaIds }, workspaceId: ctx.workspaceId },
+  });
+  if (media.length !== d.mediaIds.length) {
+    return { ok: false as const, error: "Alguma mídia não pertence a este workspace." };
+  }
+  const porId = new Map(media.map((m) => [m.id, m]));
+  const midias = d.mediaIds.map((id) => porId.get(id)!);
+
+  // Tipo × mídia.
+  const ehVideo = (k: string) => k === "VIDEO";
+  const ehImagem = (k: string) => k === "IMAGE";
+  if (d.type === "REEL" && !midias.every((m) => ehVideo(m.kind))) {
+    return { ok: false as const, error: "Reels usa vídeos. Selecione só vídeos." };
+  }
+  if (d.type === "IMAGE" && !midias.every((m) => ehImagem(m.kind))) {
+    return { ok: false as const, error: "Post de foto usa imagens. Selecione só imagens." };
+  }
+  if (d.type === "CAROUSEL" && (midias.length < 2 || midias.length > 10)) {
+    return { ok: false as const, error: "Carrossel precisa de 2 a 10 itens." };
+  }
+
+  // Contas ATIVAS do workspace, na ordem (sequencial = seleção; aleatório = embaralha uma vez).
+  const contasDb = await prisma.socialAccount.findMany({
+    where: { id: { in: d.accountIds }, workspaceId: ctx.workspaceId },
+  });
+  const contaPorId = new Map(contasDb.map((c) => [c.id, c]));
+  const contasOrdenadas = d.accountIds.map((id) => contaPorId.get(id)).filter(Boolean) as typeof contasDb;
+  const ativas = contasOrdenadas.filter((c) => c.status === "ACTIVE");
+  if (ativas.length === 0) {
+    return { ok: false as const, error: "Nenhuma conta ativa selecionada." };
+  }
+  const ordemContas = d.accountOrder === "aleatorio" ? embaralhar(ativas) : ativas;
+
+  const maxAccounts = (
+    await prisma.subscription.findUnique({ where: { workspaceId: ctx.workspaceId } })
+  )?.maxAccounts ?? 2;
+  if (ordemContas.length > maxAccounts) {
+    return {
+      ok: false as const,
+      error: `Seu plano permite ${maxAccounts} conta(s); você selecionou ${ordemContas.length}.`,
+    };
+  }
+
+  // No carrossel, as mídias viram UM post; nos demais, cada mídia é um post.
+  const grupos: { tipo: "REEL" | "IMAGE" | "STORY" | "CAROUSEL"; mediaIds: string[] }[] =
+    d.type === "CAROUSEL"
+      ? [{ tipo: "CAROUSEL", mediaIds: midias.map((m) => m.id) }]
+      : midias.map((m) => ({ tipo: d.type, mediaIds: [m.id] }));
+
+  const intervaloMs = Math.max(0, d.intervalSeconds) * 1000;
+  const base = Date.now() + 5_000; // pequeno buffer para o primeiro
+  let ordinal = 0; // posição global na fila (mídia-por-fora, conta-por-dentro)
+  let enfileirados = 0;
+
+  for (const grupo of grupos) {
+    const post = await prisma.post.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        authorId: ctx.userId,
+        type: grupo.tipo,
+        caption: d.caption,
+        shareToFeed: d.type === "REEL" ? d.shareToFeed : true,
+        staggerSeconds: Math.max(5, d.intervalSeconds),
+        status: "SCHEDULED",
+        scheduledAt: new Date(base + ordinal * intervaloMs),
+        media: { create: grupo.mediaIds.map((id, position) => ({ mediaId: id, position })) },
+      },
+    });
+
+    // Um target por conta, na ordem escolhida, cada um no seu horário da fila.
+    for (const conta of ordemContas) {
+      const at = new Date(base + ordinal * intervaloMs);
+      const target = await prisma.postTarget.create({
+        data: { postId: post.id, accountId: conta.id, status: "QUEUED", scheduledAt: at },
+      });
+      await enqueuePublish(target.id, { delayMs: Math.max(0, at.getTime() - Date.now()) });
+      enfileirados++;
+      ordinal++;
+    }
+  }
+
+  revalidatePath("/fila");
+  return {
+    ok: true as const,
+    posts: grupos.length,
+    contas: ordemContas.length,
+    enfileirados,
+  };
 }

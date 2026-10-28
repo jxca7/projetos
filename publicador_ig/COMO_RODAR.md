@@ -160,6 +160,15 @@ headless** (Playwright/Chromium, na imagem Docker), entra pelo **cookie do combo
 ação **exige o combo** (precisa do cookie) e **proxy é recomendado** — é a parte
 que sai do IP do servidor, mais sensível a bloqueio.
 
+## Postagem em Massa
+
+A tela **Postagem em Massa** publica **várias mídias em várias contas** pela API
+oficial (contas conectadas), uma de cada vez com intervalo. Escolhe o tipo
+(Reels / Post / Story / Carrossel), seleciona as mídias **na ordem**, as contas,
+a ordem das contas (sequencial ou aleatória), uma legenda opcional e o intervalo.
+A sequência é: 1ª mídia em todas as contas, depois a 2ª, e assim por diante —
+cada post separado por `intervalo` segundos. Acompanhe na **Fila**.
+
 ## Comandos úteis
 
 ```bash
