@@ -102,6 +102,12 @@ function NavIcon({ href, className }: { href: string; className?: string }) {
           <path d="m18 3 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
         </svg>
       );
+    case "/conectar":
+      return (
+        <svg {...common}>
+          <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" />
+        </svg>
+      );
     case "/preparar-teste":
       return (
         <svg {...common}>

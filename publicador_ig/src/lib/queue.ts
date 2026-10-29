@@ -8,6 +8,7 @@ export const QUEUE_IMPORT = "import";
 export const QUEUE_STORY_APP = "story-app";
 export const QUEUE_PREPARE = "prepare";
 export const QUEUE_PREPARE_TEST = "prepare-test";
+export const QUEUE_CONNECT = "connect";
 
 export interface PublishJobData {
   targetId: string;
@@ -41,6 +42,10 @@ export interface PrepareTestJobData {
   targetId: string;
 }
 
+export interface ConnectJobData {
+  targetId: string;
+}
+
 const globalForQueues = globalThis as unknown as {
   publishQueue?: Queue<PublishJobData>;
   insightsQueue?: Queue<InsightsJobData>;
@@ -49,6 +54,7 @@ const globalForQueues = globalThis as unknown as {
   storyAppQueue?: Queue<StoryAppJobData>;
   prepareQueue?: Queue<PrepareJobData>;
   prepareTestQueue?: Queue<PrepareTestJobData>;
+  connectQueue?: Queue<ConnectJobData>;
 };
 
 /**
@@ -269,6 +275,39 @@ export async function enqueuePrepareTest(targetId: string): Promise<void> {
   }
   await q.add(
     "prepare-test-invite",
+    { targetId },
+    {
+      jobId,
+      attempts: 1,
+      removeOnComplete: { age: 24 * 3600, count: 1_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
+    },
+  );
+}
+
+export function connectQueue(): Queue<ConnectJobData> {
+  if (!globalForQueues.connectQueue) {
+    globalForQueues.connectQueue = new Queue<ConnectJobData>(QUEUE_CONNECT, {
+      connection: redis(),
+    });
+  }
+  return globalForQueues.connectQueue;
+}
+
+/** Enfileira a conexão automática de uma conta. Um job por target. */
+export async function enqueueConnect(targetId: string): Promise<void> {
+  const q = connectQueue();
+  const jobId = `connect-${targetId}`;
+  const anterior = await q.getJob(jobId);
+  if (anterior) {
+    try {
+      await anterior.remove();
+    } catch {
+      /* em execução: o processador checa o status no banco */
+    }
+  }
+  await q.add(
+    "connect-account",
     { targetId },
     {
       jobId,

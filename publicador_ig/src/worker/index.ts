@@ -9,6 +9,7 @@ import {
   QUEUE_STORY_APP,
   QUEUE_PREPARE,
   QUEUE_PREPARE_TEST,
+  QUEUE_CONNECT,
   maintenanceQueue,
   type ImportJobData,
   type InsightsJobData,
@@ -17,6 +18,7 @@ import {
   type StoryAppJobData,
   type PrepareJobData,
   type PrepareTestJobData,
+  type ConnectJobData,
 } from "@/lib/queue";
 import { applyOutcome, processPublishTarget } from "./publish";
 import { processInsights } from "./insights";
@@ -25,6 +27,7 @@ import { processImport } from "./import";
 import { processStoryApp } from "./story-app";
 import { processPrepare } from "./prepare";
 import { processPrepareTest } from "./prepare-test";
+import { processConnect } from "./connect";
 import { env } from "@/lib/env";
 
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? "8");
@@ -96,6 +99,13 @@ async function main() {
     { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
   );
 
+  // Conectar automático: navegador no servidor. Uma conta por vez e espaçada.
+  const connectWorker = new Worker<ConnectJobData>(
+    QUEUE_CONNECT,
+    async (job) => processConnect(job.data),
+    { connection: redis(), concurrency: 1, limiter: { max: 4, duration: 60_000 } },
+  );
+
   publishWorker.on("completed", (job, result) => {
     const r = result as { kind: string; reason?: string; delayMs?: number } | undefined;
     if (r?.kind === "retry") {
@@ -136,6 +146,12 @@ async function main() {
   prepareTestWorker.on("failed", (job, err) => {
     log(`preparar-teste ${job?.data.targetId} falhou: ${err.message}`);
   });
+  connectWorker.on("completed", (job) => {
+    log(`conectar ${job.data.targetId}: processado`);
+  });
+  connectWorker.on("failed", (job, err) => {
+    log(`conectar ${job?.data.targetId} falhou: ${err.message}`);
+  });
 
   // Rotinas periodicas.
   const mq = maintenanceQueue();
@@ -165,6 +181,7 @@ async function main() {
       storyAppWorker.close(),
       prepareWorker.close(),
       prepareTestWorker.close(),
+      connectWorker.close(),
     ]);
     process.exit(0);
   };

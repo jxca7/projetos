@@ -86,6 +86,7 @@ model Workspace {
   storyAppJobs    StoryAppJob[]
   prepareJobs     PrepareJob[]
   prepareTestJobs PrepareTestJob[]
+  connectJobs     ConnectJob[]
   igSessions      IgSession[]
   subscription   Subscription?
 }
@@ -671,6 +672,46 @@ model PrepareJob {
   targets   PrepareTarget[]
 
   @@index([workspaceId, createdAt])
+}
+
+/// Conectar conta automaticamente (navegador no servidor faz o OAuth).
+/// Dirige o consentimento logado pelo cookie da conta e captura o code; o app
+/// troca pelo token. Um IP por conta (sticky) via proxyEnc com {session}.
+model ConnectJob {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  proxyEnc    String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   ConnectTarget[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Uma conta a conectar. Combo cifrado (precisa do cookie para o login web).
+model ConnectTarget {
+  id       String @id @default(cuid())
+  jobId    String
+
+  username    String
+  comboEnc    String
+
+  status    StoryAppStatus @default(QUEUED)
+  error     String?
+  /// @ que de fato conectou (a Meta pode devolver outro nome da conta pro).
+  connected String?
+  doneAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job ConnectJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
 
 /// TESTE — Aceitar convite do testador pelo instagrapi (sem navegador).

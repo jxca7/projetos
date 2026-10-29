@@ -33,6 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/biblioteca", label: "Biblioteca", short: "Mídia", group: "Publicar" },
     { href: "/story-link", label: "Story + link", short: "Story", group: "Publicar" },
     { href: "/contas", label: "Contas", short: "Contas", group: "Contas" },
+    { href: "/conectar", label: "Conectar contas", short: "Conectar", group: "Contas" },
     { href: "/preparar", label: "Preparar conta", short: "Preparar", group: "Contas" },
     { href: "/preparar-teste", label: "Preparar conta (teste)", short: "Teste", group: "Contas" },
     { href: "/apps-meta", label: "Apps Meta", short: "Apps", group: "Contas" },

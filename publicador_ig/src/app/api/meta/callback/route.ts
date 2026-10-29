@@ -1,9 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { encryptSecret } from "@/lib/crypto";
-import { meta, MetaApiError, NoMetaAppError, activeCredentials } from "@/lib/meta";
-import { env as appEnv } from "@/lib/env";
-import { redirectUri, verifyState, scopesFor } from "@/lib/meta/oauth";
+import { MetaApiError, NoMetaAppError } from "@/lib/meta";
+import { verifyState } from "@/lib/meta/oauth";
+import { finalizeConnection, NoProAccountError } from "@/lib/meta/connect";
 import { requireContext, canManageAccounts } from "@/lib/session";
 import { env } from "@/lib/env";
 
@@ -39,96 +37,14 @@ export async function GET(req: NextRequest) {
     return back("State do OAuth pertence a outro workspace.", "erro");
   }
 
-  const subscription = await prisma.subscription.findUnique({
-    where: { workspaceId: ctx.workspaceId },
-  });
-  const maxAccounts = subscription?.maxAccounts ?? 2;
-
   try {
-    // Em mock não há app cadastrado nem necessidade de assinar.
-    const creds =
-      appEnv().META_DRIVER === "mock"
-        ? {
-            metaAppId: null,
-            loginFlow: "FACEBOOK_LOGIN" as const,
-            appId: "",
-            appSecret: "",
-            graphVersion: "",
-            source: "env" as const,
-          }
-        : await activeCredentials(ctx.workspaceId);
-    const driver = meta(appEnv().META_DRIVER === "mock" ? null : creds);
-    const shortLived = await driver.exchangeCodeForToken(code, redirectUri());
-    const longLived = await driver.exchangeForLongLivedToken(shortLived);
-    const discovered = await driver.listInstagramAccounts(longLived.accessToken);
-
-    if (discovered.length === 0) {
-      return back(
-        "Nenhuma conta profissional do Instagram encontrada. A conta precisa ser Business " +
-          "ou Creator e estar vinculada a uma Página do Facebook.",
-        "erro",
-      );
-    }
-
-    const existing = await prisma.socialAccount.count({ where: { workspaceId: ctx.workspaceId } });
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-
-    for (const acc of discovered) {
-      const already = await prisma.socialAccount.findUnique({
-        where: { workspaceId_igUserId: { workspaceId: ctx.workspaceId, igUserId: acc.igUserId } },
-      });
-
-      if (!already && existing + created >= maxAccounts) {
-        skipped += 1;
-        continue; // estourou o limite do plano
-      }
-
-      await prisma.socialAccount.upsert({
-        where: { workspaceId_igUserId: { workspaceId: ctx.workspaceId, igUserId: acc.igUserId } },
-        update: {
-          igUsername: acc.igUsername,
-          igAccountType: acc.igAccountType,
-          pageId: acc.pageId,
-          pageName: acc.pageName,
-          profilePicUrl: acc.profilePicUrl,
-          followersCount: acc.followersCount,
-          accessTokenEnc: encryptSecret(acc.accessToken),
-          tokenExpiresAt: longLived.expiresAt,
-          scopes: [...scopesFor(creds.loginFlow)],
-          status: "ACTIVE",
-          statusMessage: null,
-          metaAppId: creds.metaAppId,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          workspaceId: ctx.workspaceId,
-          igUserId: acc.igUserId,
-          igUsername: acc.igUsername,
-          igAccountType: acc.igAccountType,
-          pageId: acc.pageId,
-          pageName: acc.pageName,
-          profilePicUrl: acc.profilePicUrl,
-          followersCount: acc.followersCount,
-          accessTokenEnc: encryptSecret(acc.accessToken),
-          tokenExpiresAt: longLived.expiresAt,
-          scopes: [...scopesFor(creds.loginFlow)],
-          status: "ACTIVE",
-          metaAppId: creds.metaAppId,
-          lastSyncedAt: new Date(),
-        },
-      });
-
-      if (already) updated += 1;
-      else created += 1;
-    }
-
+    const { created, updated, skipped } = await finalizeConnection(ctx.workspaceId, code);
     const parts = [`${created} conta(s) conectada(s)`];
     if (updated > 0) parts.push(`${updated} atualizada(s)`);
-    if (skipped > 0) parts.push(`${skipped} ignorada(s) pelo limite do plano (${maxAccounts})`);
+    if (skipped > 0) parts.push(`${skipped} ignorada(s) pelo limite do plano`);
     return back(parts.join(", ") + ".");
   } catch (e) {
+    if (e instanceof NoProAccountError) return back(e.message, "erro");
     if (e instanceof NoMetaAppError) return back(e.message, "erro");
     const message =
       e instanceof MetaApiError
