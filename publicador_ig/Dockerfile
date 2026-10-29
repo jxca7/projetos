@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Imagem única que roda tanto o painel quanto o worker.
 # O comando de cada um é escolhido no docker-compose.
 FROM node:22-slim AS base
@@ -40,7 +41,9 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
 # Instala tudo (inclui tsx, que roda o worker e os scripts em produção).
-RUN pnpm install --frozen-lockfile
+# Cache do store do pnpm: acelera quando o lockfile muda (baixa só o que falta).
+RUN --mount=type=cache,target=/pnpm-store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm-store
 
 # ---- Build ----
 FROM base AS build
@@ -56,7 +59,10 @@ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public" \
     AUTH_SECRET="placeholder-de-build-trocado-em-runtime" \
     APP_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000"
 # Gera o client do Prisma e compila o painel.
-RUN pnpm exec prisma generate && pnpm build
+# Cache do .next/cache: deixa o build INCREMENTAL entre rebuilds (só recompila o
+# que mudou), em vez de compilar o app inteiro toda vez. É o maior ganho de tempo.
+RUN --mount=type=cache,target=/app/.next/cache \
+    pnpm exec prisma generate && pnpm build
 
 # ---- Runtime ----
 FROM base AS runner
