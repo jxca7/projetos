@@ -195,6 +195,23 @@ def login_senha(page, usuario, senha):
         page.type(sel_user, usuario, delay=60)
         page.click(sel_pass)
         page.type(sel_pass, senha, delay=60)
+        page.wait_for_timeout(300)
+        # Reforço: força o React a registrar o valor (setter nativo + evento input).
+        # Sem isso, o valor aparece no campo mas o IG trata como vazio e não loga.
+        page.evaluate(
+            """(s) => {
+                const set = (el, v) => {
+                    if (!el) return;
+                    const d = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+                    d.set.call(el, v);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                };
+                set(document.querySelector(s.u), s.uv);
+                set(document.querySelector(s.p), s.pv);
+            }""",
+            {"u": sel_user, "p": sel_pass, "uv": usuario, "pv": senha},
+        )
         page.wait_for_timeout(600)
         # Lê de volta o que ficou nos campos (confirma que a digitação pegou).
         vals = page.evaluate(
