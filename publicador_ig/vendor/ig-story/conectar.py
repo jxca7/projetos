@@ -27,6 +27,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 # Reaproveita exatamente os helpers do aceitar_convite.py.
 from aceitar_convite import (  # noqa: E402
     PASTA,
+    URL_HOME,
     parse_combo,
     cookies_para_browser,
     ler_proxy,
@@ -93,13 +94,24 @@ def capturar_code(page, redirect_prefix, timeout_ms=20000):
 
 
 def conectar(page, nome, oauth_url, redirect_prefix):
-    page.goto(oauth_url, wait_until="domcontentloaded", timeout=45000)
-    page.wait_for_timeout(2500)
-
+    # 1) Aquece: abre o instagram.com com o cookie e confirma o login AQUI (onde
+    #    dá para ver os ícones de home/perfil). A tela do OAuth não tem esses
+    #    ícones, então checar login nela dava falso "não logado".
+    page.goto(URL_HOME, wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_timeout(3000)
+    clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
     if not esta_logado(page):
         if pagina_contem(page, TXT_2FA):
-            return ("2fa", "pediu 2FA/verificação")
-        return ("erro", f"não logou na web (url={page.url[:80]})")
+            return ("2fa", "pediu 2FA/verificação ao abrir o Instagram")
+        return (
+            "erro",
+            f"o cookie não logou na web (url={page.url[:80]}). "
+            "O combo precisa de sessionid + csrftoken + ds_user_id no cookie.",
+        )
+
+    # 2) Já logado: abre a URL do OAuth.
+    page.goto(oauth_url, wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_timeout(2500)
 
     # Às vezes o code volta na hora (app já autorizado antes): tenta capturar já.
     code = capturar_code(page, redirect_prefix, timeout_ms=2500)
