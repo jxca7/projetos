@@ -119,6 +119,10 @@ def enviar(s, csrf, dados):
         ok = r.json().get("status") == "ok"
     except ValueError:
         ok = False
+    # Para onde um 3xx redireciona diz MUITO: /accounts/login = sessão não vale na web.
+    destino = r.headers.get("location", "")
+    if destino:
+        corpo = f"[redireciona -> {destino}] {corpo}".strip()
     return ok, r.status_code, corpo
 
 
@@ -178,9 +182,13 @@ def main():
 
         log(nome, "Tentativa 2: com fb_dtsg da página...")
         r = s.get(URL_PAGINA, timeout=30)
+        # Se a página caiu no login, a sessão do instagrapi não vale na web.
+        if "/accounts/login" in r.url or "login" in r.url.rsplit("/", 1)[-1]:
+            print(f"✘ {nome}: a sessão não está logada na WEB (a página caiu em {r.url})")
+            return 1
         token = achar_fb_dtsg(r.text)
         if not token:
-            print(f"✘ {nome}: recusado e sem fb_dtsg na página (HTTP {status}: {corpo})")
+            print(f"✘ {nome}: recusado e sem fb_dtsg na página (HTTP {status}: {corpo}); página={r.url}")
             return 1
         csrf = s.cookies.get("csrftoken") or csrf
         ok, status2, corpo2 = enviar(
