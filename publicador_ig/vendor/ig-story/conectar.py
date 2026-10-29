@@ -29,7 +29,6 @@ from aceitar_convite import (  # noqa: E402
     PASTA,
     URL_HOME,
     parse_combo,
-    cookies_para_browser,
     ler_proxy,
     clicar_texto,
     esta_logado,
@@ -279,7 +278,7 @@ def main():
         print("✘ nenhuma conta informada")
         return 1
     texto = arq.read_text(encoding="utf-8-sig").strip()
-    cookie, ua = parse_combo(texto)
+    _, ua = parse_combo(texto)  # cookie não usado aqui (login é por senha)
     usuario, senha = parse_user_pass(texto)
     # Conectar usa login por usuário e senha (o cookie não loga no navegador aqui).
     if not usuario or not senha:
@@ -304,8 +303,10 @@ def main():
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
                 proxy=proxy,
             )
+            # NÃO injeta o cookie: ele cria um estado "meio-logado" que esconde o
+            # formulário de login e trava a senha, mas é inválido pro OAuth.
+            # Navegador limpo -> login por senha limpo -> sessão válida pro OAuth.
             ctx = browser.new_context(user_agent=ua or None, locale="pt-BR")
-            ctx.add_cookies(cookies_para_browser(cookie))
             page = ctx.new_page()
             try:
                 estado, info = conectar(page, nome, oauth_url, redirect_prefix, usuario, senha)
