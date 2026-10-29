@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { runDownloader, ReelDownloadError, type ProfileOptions, type DownloadedFile } from "@/lib/media/download";
+import { stripMetadata } from "@/lib/media/strip-metadata";
 import {
   ingestMedia,
   MediaRejectedError,
@@ -28,16 +29,23 @@ async function ingerir(
   workspaceId: string,
   file: DownloadedFile,
 ): Promise<{ assetId: string; duplicate: boolean }> {
-  const body = await fs.readFile(file.path);
-  const { asset, duplicate } = await ingestMedia({
-    workspaceId,
-    body,
-    originalName: path.basename(file.path),
-    mimeType: file.mimeType,
-    usedFor: "LIBRARY",
-    caption: file.caption,
-  });
-  return { assetId: asset.id, duplicate };
+  // Remove os metadados antes de ingerir, sem recodificar (zero perda). Se o
+  // ffmpeg falhar ou não existir, segue com o arquivo original.
+  const limpo = await stripMetadata(file.path, file.mimeType);
+  try {
+    const body = await fs.readFile(limpo ?? file.path);
+    const { asset, duplicate } = await ingestMedia({
+      workspaceId,
+      body,
+      originalName: path.basename(file.path),
+      mimeType: file.mimeType,
+      usedFor: "LIBRARY",
+      caption: file.caption,
+    });
+    return { assetId: asset.id, duplicate };
+  } finally {
+    if (limpo) await fs.rm(limpo, { force: true });
+  }
 }
 
 export async function processImport(data: ImportJobData): Promise<void> {

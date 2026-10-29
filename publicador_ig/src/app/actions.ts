@@ -632,7 +632,7 @@ export async function toggleMediaFavoriteAction(mediaId: string) {
  * Apaga uma mídia da biblioteca e seus arquivos no storage.
  * Mídia usada por um post publicado não pode ser apagada (o histórico quebraria).
  */
-export async function deleteMediaAction(mediaId: string) {
+export async function deleteMediaAction(mediaId: string, force = false) {
   const ctx = await requireContext();
   if (!canEdit(ctx.role)) return { ok: false as const, error: "Sem permissão." };
 
@@ -643,10 +643,29 @@ export async function deleteMediaAction(mediaId: string) {
   if (!asset) return { ok: false as const, error: "Mídia não encontrada." };
 
   if (asset._count.postMedia > 0) {
-    return {
-      ok: false as const,
-      error: `Em uso por ${asset._count.postMedia} post(s). Remova dos posts antes de apagar.`,
-    };
+    // Sem forçar: só avisa (a UI oferece "remover mesmo assim"), mandando o total.
+    if (!force) {
+      return {
+        ok: false as const,
+        inUse: asset._count.postMedia,
+        error: `Em uso por ${asset._count.postMedia} post(s). Remova dos posts antes de apagar.`,
+      };
+    }
+    // Forçando: trava se houver publicação em andamento/na fila usando a mídia.
+    const ativos = await prisma.postTarget.count({
+      where: {
+        post: { workspaceId: ctx.workspaceId, media: { some: { mediaId } } },
+        status: { in: ["PENDING", "QUEUED", "CREATING_CONTAINER", "WAITING_CONTAINER", "PUBLISHING"] },
+      },
+    });
+    if (ativos > 0) {
+      return {
+        ok: false as const,
+        error: `Há ${ativos} publicação(ões) na fila usando essa mídia. Cancele-as antes de apagar.`,
+      };
+    }
+    // Desvincula dos posts (PostMedia tem onDelete: Restrict) e segue para apagar.
+    await prisma.postMedia.deleteMany({ where: { mediaId } });
   }
 
   // Apaga os arquivos primeiro; se o storage falhar, o registro fica para nova tentativa.

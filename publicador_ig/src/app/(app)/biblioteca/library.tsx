@@ -117,9 +117,29 @@ export function MediaLibrary({ initial }: { initial: MediaItem[] }) {
   function apagar(id: string, nome: string) {
     if (!window.confirm(`Apagar "${nome}"? Isso remove o arquivo em definitivo.`)) return;
     startTransition(async () => {
-      const r = await deleteMediaAction(id);
+      const r = (await deleteMediaAction(id)) as {
+        ok: boolean;
+        error?: string;
+        inUse?: number;
+      };
       if (!r.ok) {
-        setMsg({ tone: "danger", text: r.error });
+        // Em uso por posts: oferece remover mesmo assim (desvincula dos posts).
+        if (r.inUse && r.inUse > 0) {
+          if (
+            window.confirm(
+              `Essa mídia está em ${r.inUse} post(s). Remover mesmo assim? Ela sai desses posts e o arquivo é apagado. (Publicações na fila bloqueiam a remoção.)`,
+            )
+          ) {
+            const f = await deleteMediaAction(id, true);
+            if (!f.ok) {
+              setMsg({ tone: "danger", text: f.error });
+              return;
+            }
+            setItens((prev) => prev.filter((m) => m.id !== id));
+          }
+          return;
+        }
+        setMsg({ tone: "danger", text: r.error ?? "Não foi possível apagar." });
         return;
       }
       setItens((prev) => prev.filter((m) => m.id !== id));
