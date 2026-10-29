@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { disconnectAccountsAction, reactivateAccountsAction } from "@/app/actions";
+import {
+  disconnectAccountsAction,
+  reactivateAccountsAction,
+  removeAccountsAction,
+  removeAllOffAccountsAction,
+} from "@/app/actions";
 import { Badge, Button, Card, Notice } from "@/components/ui";
 import { Avatar } from "@/components/avatar";
 import { ACCOUNT_STATUS, formatDateTime } from "@/lib/labels";
@@ -58,6 +63,7 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
         reactivated?: number;
         needsOauth?: number;
         disconnected?: number;
+        removed?: number;
       };
       if (!r.ok) {
         setMsg({ tone: "danger", text: r.error ?? "Não foi possível concluir." });
@@ -69,10 +75,18 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
         setMsg({ tone: r.needsOauth ? "warn" : "ok", text: partes.join("; ") + "." });
       } else if (r.disconnected !== undefined) {
         setMsg({ tone: "ok", text: `${r.disconnected} conta(s) desconectada(s).` });
+      } else if (r.removed !== undefined) {
+        setMsg({ tone: "ok", text: `${r.removed} conta(s) removida(s).` });
       }
       setSelected([]);
       router.refresh();
     });
+  }
+
+  /** Executa só depois de confirmar — remover é irreversível. */
+  function runConfirm(texto: string, fn: () => Promise<unknown>) {
+    if (!window.confirm(texto)) return;
+    run(fn);
   }
 
   return (
@@ -103,6 +117,32 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
             onClick={() => run(() => disconnectAccountsAction(selected))}
           >
             Desconectar selecionadas ({selected.length})
+          </Button>
+          <Button
+            variant="danger"
+            type="button"
+            disabled={pending || selected.length === 0}
+            onClick={() =>
+              runConfirm(
+                `Remover ${selected.length} conta(s) do sistema? Isso apaga os posts, métricas e lembretes delas. Não dá para desfazer.`,
+                () => removeAccountsAction(selected),
+              )
+            }
+          >
+            Remover selecionadas ({selected.length})
+          </Button>
+          <Button
+            variant="danger"
+            type="button"
+            disabled={pending || accounts.length === 0}
+            onClick={() =>
+              runConfirm(
+                `Remover TODAS as ${accounts.length} contas desligadas? Isso apaga os posts, métricas e lembretes delas. Não dá para desfazer.`,
+                () => removeAllOffAccountsAction(),
+              )
+            }
+          >
+            Remover todas ({accounts.length})
           </Button>
           <Button variant="ghost" type="button" disabled={pending} onClick={() => router.refresh()}>
             Atualizar
@@ -196,11 +236,28 @@ export function BulkOffAccounts({ accounts }: { accounts: OffAccount[] }) {
                       type="button"
                       className="px-2 py-1.5 text-xs"
                       disabled={pending}
-                      title="Desconectar"
+                      title="Desconectar (desliga, mantém no sistema)"
                       onClick={() => run(() => disconnectAccountsAction([a.id]))}
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M18.36 6.64A9 9 0 1 1 5.64 6.64M12 2v10" />
+                      </svg>
+                    </Button>
+                    <Button
+                      variant="danger"
+                      type="button"
+                      className="px-2 py-1.5 text-xs"
+                      disabled={pending}
+                      title="Remover do sistema (apaga de vez)"
+                      onClick={() =>
+                        runConfirm(
+                          `Remover @${a.igUsername} do sistema? Isso apaga os posts, métricas e lembretes dessa conta. Não dá para desfazer.`,
+                          () => removeAccountsAction([a.id]),
+                        )
+                      }
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6" />
                       </svg>
                     </Button>
                   </div>

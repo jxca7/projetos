@@ -384,6 +384,38 @@ export async function disconnectAccountsAction(accountIds: string[]) {
   return { ok: true as const, disconnected: result.count };
 }
 
+/**
+ * Remove contas de vez (apaga do sistema). Cascateia: posts, métricas e
+ * lembretes da conta somem junto. Ação irreversível — a UI confirma antes.
+ */
+export async function removeAccountsAction(accountIds: string[]) {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+  if (accountIds.length === 0) return { ok: false as const, error: "Nenhuma conta selecionada." };
+
+  const result = await prisma.socialAccount.deleteMany({
+    where: { id: { in: accountIds }, workspaceId: ctx.workspaceId },
+  });
+
+  revalidatePath("/contas");
+  revalidatePath("/contas-off");
+  return { ok: true as const, removed: result.count };
+}
+
+/** Remove TODAS as contas desligadas/off do workspace de uma vez. */
+export async function removeAllOffAccountsAction() {
+  const ctx = await requireContext();
+  if (!canManageAccounts(ctx.role)) return { ok: false as const, error: "Sem permissão." };
+
+  const result = await prisma.socialAccount.deleteMany({
+    where: { workspaceId: ctx.workspaceId, status: { not: "ACTIVE" } },
+  });
+
+  revalidatePath("/contas");
+  revalidatePath("/contas-off");
+  return { ok: true as const, removed: result.count };
+}
+
 /** Recoloca na fila todos os destinos falhos de contas que voltaram a funcionar. */
 export async function retryAllFailedAction() {
   const ctx = await requireContext();
