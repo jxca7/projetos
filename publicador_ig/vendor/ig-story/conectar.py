@@ -154,26 +154,34 @@ def login_senha(page, usuario, senha):
 
 
 def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
+    tr = []  # trilha dos passos, para aparecer no erro
     # 1) Aquece: abre o instagram.com (o cookie pode já logar). Espera decidir.
     ir(page, URL_HOME)
     clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
     estado = esperar_decisao(page)
+    tr.append(f"home={estado}")
 
-    # 2) Se caiu no login, entra com usuário e senha do combo.
-    if estado in ("login", "incerto") and usuario and senha:
-        login_senha(page, usuario, senha)
-        clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # "Salvar informações? Agora não"
+    # 2) SEMPRE faz login por usuário e senha (o cookie não vale no navegador aqui),
+    #    a menos que já esteja claramente logado.
+    if estado != "logado" and usuario and senha:
+        feito = login_senha(page, usuario, senha)
+        clicar_texto(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
         estado = esperar_decisao(page)
+        tr.append(f"login={'ok' if feito else 'falhou'}->{estado}")
 
     if estado == "2fa":
-        return ("2fa", "pediu 2FA/verificação no login")
+        return ("2fa", f"pediu 2FA/verificação no login [{' '.join(tr)}]")
     if estado != "logado":
         if not usuario or not senha:
-            return ("erro", "não logou e o combo não tem usuário:senha para o login.")
-        return ("erro", f"não logou com usuário e senha (url={page.url[:80]}). Senha errada ou conta bloqueada?")
+            return ("erro", f"não logou e sem usuário:senha [{' '.join(tr)}]")
+        return ("erro", f"não logou com usuário e senha (url={page.url[:70]}) [{' '.join(tr)}]")
 
-    # 2) Já logado: abre a URL do OAuth.
+    # 3) Já logado: abre a URL do OAuth.
     ir(page, oauth_url)
+    page.wait_for_timeout(2000)
+    # Se o OAuth AINDA mostra login, a sessão não ficou de pé.
+    if pagina_contem(page, TXT_LOGIN):
+        return ("erro", f"abri o OAuth mas voltou pro login (sessão não ficou logada) [{' '.join(tr)}]")
 
     # Às vezes o code volta na hora (app já autorizado antes): tenta capturar já.
     code = capturar_code(page, redirect_prefix, timeout_ms=2500)
@@ -192,7 +200,7 @@ def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
                 return ("ok", code)
         elif passo.get("obrigatorio"):
             botoes = " | ".join(textos_clicaveis(page))
-            return ("erro", f"não achei o botão '{passo['nome']}'. Botões na tela: {botoes}")
+            return ("erro", f"não achei o botão '{passo['nome']}'. Botões: {botoes} [{' '.join(tr)}]")
 
     # Depois do Permitir, dá um tempo para o redirect sair.
     code = capturar_code(page, redirect_prefix, timeout_ms=15000)
