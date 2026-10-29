@@ -183,12 +183,18 @@ def _achar_campo_login(page, timeout_ms=30000):
 
 def login_senha(page, usuario, senha):
     """Preenche a tela de login do Instagram com usuário e senha."""
+    sel_user = 'input[name="username"], input[name="email"], input[autocomplete="username"]'
+    sel_pass = 'input[name="password"], input[type="password"]'
     try:
         ir(page, URL_LOGIN)
         if not _achar_campo_login(page):
             return False
-        page.fill('input[name="username"], input[name="email"], input[autocomplete="username"]', usuario)
-        page.fill('input[name="password"], input[type="password"]', senha)
+        # DIGITA caractere a caractere (o React do IG ignora valor setado via fill):
+        page.click(sel_user)
+        page.type(sel_user, usuario, delay=60)
+        page.click(sel_pass)
+        page.type(sel_pass, senha, delay=60)
+        page.wait_for_timeout(600)  # deixa o botão "Entrar" habilitar
     except Exception:
         return False
     if not clicar_texto(page, TXT_ENTRAR, timeout_ms=8000):
@@ -196,8 +202,8 @@ def login_senha(page, usuario, senha):
             page.keyboard.press("Enter")
         except Exception:
             pass
-    # Espera o form de login SUMIR (sinal de que entrou) ou dar erro/2FA.
-    fim = time.time() + 20
+    # Espera o form de login SUMIR (entrou) ou dar erro/2FA.
+    fim = time.time() + 25
     while time.time() < fim:
         if not tem_form_login(page):
             break
@@ -205,6 +211,21 @@ def login_senha(page, usuario, senha):
             break
         page.wait_for_timeout(1000)
     return True
+
+
+def erro_de_login(page):
+    """Mensagem de erro do IG na tela de login (senha errada etc.), se houver."""
+    marcas = ["senha estava incorreta", "password was incorrect", "incorrect password",
+              "não foi possível encontrar", "couldn't find an account", "tente novamente mais tarde",
+              "try again later", "suspeita", "suspicious", "ação bloqueada", "action blocked"]
+    try:
+        body = (page.inner_text("body") or "").lower()
+    except Exception:
+        return None
+    for m in marcas:
+        if m in body:
+            return m
+    return None
 
 
 def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
@@ -228,7 +249,9 @@ def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
     if estado != "logado":
         if not usuario or not senha:
             return ("erro", f"não logou e sem usuário:senha [{' '.join(tr)}]")
-        return ("erro", f"não logou com usuário e senha (url={page.url[:70]}) [{' '.join(tr)}]")
+        motivo = erro_de_login(page)
+        extra = f" — Instagram: '{motivo}'" if motivo else ""
+        return ("erro", f"não logou com usuário e senha{extra} [{' '.join(tr)}]")
 
     # 3) Já logado: abre a URL do OAuth.
     ir(page, oauth_url)
