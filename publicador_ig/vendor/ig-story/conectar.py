@@ -185,24 +185,46 @@ def login_senha(page, usuario, senha):
     """Preenche a tela de login do Instagram com usuário e senha."""
     sel_user = 'input[name="username"], input[name="email"], input[autocomplete="username"]'
     sel_pass = 'input[name="password"], input[type="password"]'
+    diag = []
     try:
         ir(page, URL_LOGIN)
         if not _achar_campo_login(page):
-            return False
+            return "sem-campo"
         # DIGITA caractere a caractere (o React do IG ignora valor setado via fill):
         page.click(sel_user)
         page.type(sel_user, usuario, delay=60)
         page.click(sel_pass)
         page.type(sel_pass, senha, delay=60)
-        page.wait_for_timeout(600)  # deixa o botão "Entrar" habilitar
+        page.wait_for_timeout(600)
+        # Lê de volta o que ficou nos campos (confirma que a digitação pegou).
+        vals = page.evaluate(
+            """(s) => {
+                const u = document.querySelector(s.u);
+                const p = document.querySelector(s.p);
+                const btn = document.querySelector('button[type=submit]');
+                return { uLen: u ? (u.value||'').length : -1, pLen: p ? (p.value||'').length : -1,
+                         btnDisabled: btn ? !!btn.disabled : null };
+            }""",
+            {"u": sel_user, "p": sel_pass},
+        )
+        diag.append(f"user={vals['uLen']}ch pass={vals['pLen']}ch btnOff={vals['btnDisabled']}")
+    except Exception as e:
+        return f"erro-preencher({type(e).__name__})"
+    # Envia: botão submit direto; senão o texto; senão Enter.
+    enviado = False
+    try:
+        btn = page.query_selector('button[type="submit"]:not([disabled])')
+        if btn:
+            btn.click()
+            enviado = True
     except Exception:
-        return False
-    if not clicar_texto(page, TXT_ENTRAR, timeout_ms=8000):
+        pass
+    if not enviado and not clicar_texto(page, TXT_ENTRAR, timeout_ms=6000):
         try:
             page.keyboard.press("Enter")
         except Exception:
             pass
-    # Espera o form de login SUMIR (entrou) ou dar erro/2FA.
+    # Espera o form SUMIR (entrou) ou dar erro/2FA.
     fim = time.time() + 25
     while time.time() < fim:
         if not tem_form_login(page):
@@ -210,7 +232,7 @@ def login_senha(page, usuario, senha):
         if pagina_contem(page, TXT_2FA):
             break
         page.wait_for_timeout(1000)
-    return True
+    return "ok[" + ";".join(diag) + "]"
 
 
 def erro_de_login(page):
@@ -239,10 +261,10 @@ def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
     # 2) SEMPRE faz login por usuário e senha — o cookie não vale no navegador aqui,
     #    e o "logado" do aquecimento dá falso positivo com a página meio carregada.
     if usuario and senha:
-        feito = login_senha(page, usuario, senha)
+        diag = login_senha(page, usuario, senha)
         clicar_texto(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
         estado = esperar_decisao(page)
-        tr.append(f"login={'ok' if feito else 'falhou'}->{estado}")
+        tr.append(f"login={diag}->{estado}")
 
     if estado == "2fa":
         return ("2fa", f"pediu 2FA/verificação no login [{' '.join(tr)}]")
