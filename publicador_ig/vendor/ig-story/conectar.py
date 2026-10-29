@@ -210,20 +210,16 @@ def login_senha(page, usuario, senha):
         diag.append(f"user={vals['uLen']}ch pass={vals['pLen']}ch btnOff={vals['btnDisabled']}")
     except Exception as e:
         return f"erro-preencher({type(e).__name__})"
-    # Envia: botão submit direto; senão o texto; senão Enter.
-    enviado = False
+    # Envia: Enter com o foco no campo de senha é o mais confiável (o IG não usa
+    # button[type=submit]). Reforça com o clique no "Entrar" se ainda estiver lá.
     try:
-        btn = page.query_selector('button[type="submit"]:not([disabled])')
-        if btn:
-            btn.click()
-            enviado = True
+        page.focus(sel_pass)
+        page.keyboard.press("Enter")
     except Exception:
         pass
-    if not enviado and not clicar_texto(page, TXT_ENTRAR, timeout_ms=6000):
-        try:
-            page.keyboard.press("Enter")
-        except Exception:
-            pass
+    page.wait_for_timeout(2500)
+    if tem_form_login(page):
+        clicar_texto(page, TXT_ENTRAR, timeout_ms=5000)
     # Espera o form SUMIR (entrou) ou dar erro/2FA.
     fim = time.time() + 25
     while time.time() < fim:
