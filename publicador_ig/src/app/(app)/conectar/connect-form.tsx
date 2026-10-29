@@ -213,7 +213,23 @@ export function ConnectForm({ initialJobs }: { initialJobs: ConnectJob[] }) {
                           ) : null}
                         </div>
                         {t.error ? (
-                          <p className="mt-1 break-words text-[11px] text-danger">{t.error}</p>
+                          <p className="mt-1 break-words text-[11px] text-danger">
+                            {t.error.split(/(https?:\/\/\S+)/).map((parte, i) =>
+                              /^https?:\/\//.test(parte) ? (
+                                <a
+                                  key={i}
+                                  href={parte}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="underline"
+                                >
+                                  ver print
+                                </a>
+                              ) : (
+                                <span key={i}>{parte}</span>
+                              ),
+                            )}
+                          </p>
                         ) : null}
                       </li>
                     );

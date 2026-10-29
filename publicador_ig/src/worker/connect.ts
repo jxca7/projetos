@@ -59,11 +59,23 @@ export async function processConnect(data: ConnectJobData): Promise<void> {
       return;
     }
 
+    // Salva o print da falha e põe o link no erro, para a gente ver a tela.
+    let msgErro = result.message;
+    if (result.shotPng && result.shotPng.length > 0) {
+      try {
+        const { storage } = await import("@/lib/storage");
+        const key = `connect-shots/${target.id}-${Date.now()}.png`;
+        const stored = await storage().put(key, result.shotPng, "image/png");
+        msgErro = `${result.message} · print: ${stored.publicUrl}`;
+      } catch {
+        /* sem print não bloqueia */
+      }
+    }
     await prisma.connectTarget.update({
       where: { id: target.id },
       data: {
         status: result.outcome === "SKIPPED_2FA" ? "SKIPPED_2FA" : "FAILED",
-        error: result.message,
+        error: msgErro,
       },
     });
   } catch (e) {

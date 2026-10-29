@@ -25,6 +25,8 @@ export interface ConnectBrowserResult {
   outcome: ConnectBrowserOutcome;
   code: string | null;
   message: string;
+  /** Print da tela quando falhou (PNG), para diagnóstico. null se não houve. */
+  shotPng: Buffer | null;
   stdout: string;
   stderr: string;
 }
@@ -75,14 +77,26 @@ export async function connectAccountBrowser(input: ConnectBrowserInput): Promise
     }
 
     const { stdout, stderr } = await executar([connectScript], dir);
-    return interpretar(username, stdout, stderr);
+    const base = interpretar(username, stdout, stderr);
+    // Lê o print de erro, se o script tiver salvo um.
+    let shotPng: Buffer | null = null;
+    try {
+      shotPng = await fs.readFile(path.join(dir, "erro.png"));
+    } catch {
+      /* sem print */
+    }
+    return { ...base, shotPng };
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
 
 /** Lê a saída (✔ CODE=.../⏭/✘). */
-function interpretar(username: string, stdout: string, stderr: string): ConnectBrowserResult {
+function interpretar(
+  username: string,
+  stdout: string,
+  stderr: string,
+): Omit<ConnectBrowserResult, "shotPng"> {
   const out = stdout + "\n" + stderr;
   const linhas = out.split("\n").map((l) => l.trim()).filter(Boolean);
   const resumo = linhas.find((l) => /^[✔✘⏭]/.test(l)) ?? "";

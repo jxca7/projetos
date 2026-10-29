@@ -369,6 +369,12 @@ def main():
             try:
                 estado, info = conectar(page, nome, oauth_url, redirect_prefix, usuario, senha)
             finally:
+                # Na falha, salva um print para a gente VER o que estava na tela.
+                if estado != "ok":
+                    try:
+                        page.screenshot(path=str(PASTA / "erro.png"), full_page=False)
+                    except Exception:
+                        pass
                 try:
                     ctx.close()
                     browser.close()
