@@ -40,6 +40,8 @@ from aceitar_convite import (  # noqa: E402
 )
 
 TXT_AGORA_NAO = ["Agora não", "Not now", "Not Now"]
+TXT_ENTRAR = ["Entrar", "Log in", "Log In"]
+URL_LOGIN = "https://www.instagram.com/accounts/login/"
 # Marcas da TELA DE LOGIN (não logado): se aparecem, o cookie não valeu na web.
 TXT_LOGIN = ["Esqueceu a senha", "Forgot password", "Criar nova conta",
              "Create new account", "Telefone, nome de usuário", "Phone number, username"]
@@ -133,22 +135,42 @@ def esperar_decisao(page, timeout_ms=20000):
     return "logado" if esta_logado(page) else "incerto"
 
 
-def conectar(page, nome, oauth_url, redirect_prefix):
-    # 1) Aquece: abre o instagram.com com o cookie e espera a home DECIDIR entre
-    #    login e logado (não confia num único check num DOM meio carregado).
+def login_senha(page, usuario, senha):
+    """Preenche a tela de login do Instagram com usuário e senha."""
+    try:
+        ir(page, URL_LOGIN)
+        page.wait_for_selector('input[name="username"]', timeout=20000)
+        page.fill('input[name="username"]', usuario)
+        page.fill('input[name="password"]', senha)
+    except Exception:
+        return False
+    if not clicar_texto(page, TXT_ENTRAR, timeout_ms=8000):
+        try:
+            page.keyboard.press("Enter")
+        except Exception:
+            pass
+    page.wait_for_timeout(5000)
+    return True
+
+
+def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
+    # 1) Aquece: abre o instagram.com (o cookie pode já logar). Espera decidir.
     ir(page, URL_HOME)
     clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
     estado = esperar_decisao(page)
+
+    # 2) Se caiu no login, entra com usuário e senha do combo.
+    if estado in ("login", "incerto") and usuario and senha:
+        login_senha(page, usuario, senha)
+        clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # "Salvar informações? Agora não"
+        estado = esperar_decisao(page)
+
     if estado == "2fa":
-        return ("2fa", "pediu 2FA/verificação ao abrir o Instagram")
+        return ("2fa", "pediu 2FA/verificação no login")
     if estado != "logado":
-        return (
-            "erro",
-            "o cookie não logou na web (caiu na tela de login). O combo precisa do "
-            "cookie COMPLETO: sessionid + csrftoken + ds_user_id. Só o sessionid não "
-            "basta no navegador. (O convite pelo instagrapi aceita só o sessionid, por "
-            "isso lá funciona e aqui não.)",
-        )
+        if not usuario or not senha:
+            return ("erro", "não logou e o combo não tem usuário:senha para o login.")
+        return ("erro", f"não logou com usuário e senha (url={page.url[:80]}). Senha errada ou conta bloqueada?")
 
     # 2) Já logado: abre a URL do OAuth.
     ir(page, oauth_url)
@@ -179,14 +201,26 @@ def conectar(page, nome, oauth_url, redirect_prefix):
     return ("erro", f"cliquei tudo mas não veio o code (url={page.url[:80]})")
 
 
+def parse_user_pass(texto):
+    """Pega (usuario, senha) do 1º campo do combo (Login:Pass|UA|TechData|Cookie)."""
+    campo0 = texto.split("|", 1)[0].strip()
+    if ":" in campo0:
+        u, _, p = campo0.partition(":")
+        return (u.strip().lstrip("@"), p.strip())
+    return (None, None)
+
+
 def main():
     arq = arquivo_da_conta()
     if not arq:
         print("✘ nenhuma conta informada")
         return 1
-    cookie, ua = parse_combo(arq.read_text(encoding="utf-8-sig").strip())
-    if not cookie or "sessionid=" not in cookie.lower():
-        print("✘ o combo não tem cookie (sessionid) — conectar exige o combo completo")
+    texto = arq.read_text(encoding="utf-8-sig").strip()
+    cookie, ua = parse_combo(texto)
+    usuario, senha = parse_user_pass(texto)
+    # Conectar usa login por usuário e senha (o cookie não loga no navegador aqui).
+    if not usuario or not senha:
+        print("✘ o combo não tem usuário:senha (necessário para o login no navegador)")
         return 1
 
     oauth_url = ler("oauth_url.txt")
@@ -211,7 +245,7 @@ def main():
             ctx.add_cookies(cookies_para_browser(cookie))
             page = ctx.new_page()
             try:
-                estado, info = conectar(page, nome, oauth_url, redirect_prefix)
+                estado, info = conectar(page, nome, oauth_url, redirect_prefix, usuario, senha)
             finally:
                 try:
                     ctx.close()
