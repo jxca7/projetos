@@ -8,6 +8,7 @@ import {
   createFolderAction,
   deleteFolderAction,
   disconnectAccountsAction,
+  removeAccountsAction,
   refreshQuotaAction,
   renameFolderAction,
 } from "@/app/actions";
@@ -266,6 +267,26 @@ export function AccountsManager({
               Desconectar
             </Button>
             <Button
+              variant="danger"
+              type="button"
+              className="px-3 py-1.5 text-xs"
+              disabled={pending}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Remover ${selected.length} conta(s) do sistema? Isso apaga os posts, métricas e lembretes delas. Não dá para desfazer.`,
+                  )
+                )
+                  return;
+                run(
+                  () => removeAccountsAction(selected),
+                  (r: never) => `${(r as { removed: number }).removed} conta(s) removida(s).`,
+                );
+              }}
+            >
+              Remover
+            </Button>
+            <Button
               variant="ghost"
               type="button"
               className="px-2 py-1.5 text-xs"
@@ -377,6 +398,31 @@ export function AccountsManager({
                           reconectar
                         </Link>
                       )
+                    ) : null}
+                    {canManage ? (
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        className="px-2 py-1 text-xs text-danger"
+                        disabled={pending}
+                        title="Remover do sistema (apaga de vez)"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Remover @${a.igUsername} do sistema? Isso apaga os posts, métricas e lembretes dessa conta. Não dá para desfazer.`,
+                            )
+                          )
+                            return;
+                          run(
+                            () => removeAccountsAction([a.id]),
+                            (r: never) => `${(r as { removed: number }).removed} conta(s) removida(s).`,
+                          );
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6" />
+                        </svg>
+                      </Button>
                     ) : null}
                   </div>
                 </li>
