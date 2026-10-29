@@ -34,17 +34,25 @@ export function resolveProxyForAccount(
  * As opções vão na SENHA, separadas por "_": país, sessão (por conta) e duração.
  * Deixa o marcador {session} para o worker trocar por conta.
  *
- * Ex.: geo.iproyal.com:12321:USER:PASS
- *   -> geo.iproyal.com:12321:USER:PASS_country-br_session-{session}_lifetime-7d
+ * À prova de erro: se o usuário colar a string com uma sessão JÁ fixa (ex.:
+ * ..._session-abc123_lifetime-168h), nós REMOVEMOS essa sessão/país/duração e
+ * recolocamos {session} — senão todas as contas usariam o mesmo IP (o erro que
+ * derruba o lote). Aceita tanto a base quanto a string completa do dashboard.
  *
- * Se já vier com sessão/marcador, ou não for no formato de 4 partes, devolve igual.
+ * Ex.: geo.iproyal.com:12321:USER:PASS
+ *   -> geo.iproyal.com:12321:USER:PASS_country-br_session-{session}_lifetime-168h
  */
 export function buildIproyalSticky(base: string, country = "br"): string {
   const p = base.trim();
-  if (!p || p.includes("://") || p.includes("{session}") || p.includes("_session-")) return p;
+  if (!p || p.includes("://") || p.includes("{session}")) return p;
   const partes = p.split(":");
   if (partes.length < 4) return p; // sem usuário/senha não dá para fazer sticky
   const [host, porta, usuario, ...resto] = partes;
-  const senha = resto.join(":");
-  return `${host}:${porta}:${usuario}:${senha}_country-${country}_session-{session}_lifetime-7d`;
+  // Tira país/sessão/duração que já venham na senha, para reaplicar POR CONTA.
+  const senha = resto
+    .join(":")
+    .replace(/_country-[^_:]*/gi, "")
+    .replace(/_session-[^_:]*/gi, "")
+    .replace(/_lifetime-[^_:]*/gi, "");
+  return `${host}:${porta}:${usuario}:${senha}_country-${country}_session-{session}_lifetime-168h`;
 }
