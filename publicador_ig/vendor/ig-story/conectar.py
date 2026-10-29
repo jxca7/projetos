@@ -93,12 +93,33 @@ def capturar_code(page, redirect_prefix, timeout_ms=20000):
     return achado["code"]
 
 
+def ir(page, url, tentativas=2):
+    """Navega tolerando lentidão (proxy residencial + Chromium em servidor fraco).
+    Não trava no domcontentloaded: assim que a navegação 'commita', segue. Em
+    timeout, tenta de novo. Devolve True se pelo menos carregou algo da URL."""
+    erro = None
+    for _ in range(tentativas):
+        try:
+            page.goto(url, wait_until="commit", timeout=90000)
+            page.wait_for_timeout(4000)  # deixa o JS da página renderizar um pouco
+            return True
+        except Exception as e:
+            erro = e
+            page.wait_for_timeout(2000)
+    # Mesmo em timeout, pode ter carregado parte: vale seguir se saiu da about:blank.
+    try:
+        if page.url and page.url != "about:blank":
+            return True
+    except Exception:
+        pass
+    raise erro if erro else RuntimeError("navegação falhou")
+
+
 def conectar(page, nome, oauth_url, redirect_prefix):
     # 1) Aquece: abre o instagram.com com o cookie e confirma o login AQUI (onde
     #    dá para ver os ícones de home/perfil). A tela do OAuth não tem esses
     #    ícones, então checar login nela dava falso "não logado".
-    page.goto(URL_HOME, wait_until="domcontentloaded", timeout=45000)
-    page.wait_for_timeout(3000)
+    ir(page, URL_HOME)
     clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
     if not esta_logado(page):
         if pagina_contem(page, TXT_2FA):
@@ -110,8 +131,7 @@ def conectar(page, nome, oauth_url, redirect_prefix):
         )
 
     # 2) Já logado: abre a URL do OAuth.
-    page.goto(oauth_url, wait_until="domcontentloaded", timeout=45000)
-    page.wait_for_timeout(2500)
+    ir(page, oauth_url)
 
     # Às vezes o code volta na hora (app já autorizado antes): tenta capturar já.
     code = capturar_code(page, redirect_prefix, timeout_ms=2500)
@@ -179,7 +199,11 @@ def main():
                 except Exception:
                     pass
     except Exception as e:
-        estado, info = ("erro", f"navegador falhou ({type(e).__name__}: {str(e)[:200]})")
+        msg = f"{type(e).__name__}: {str(e)[:160]}"
+        if "Timeout" in type(e).__name__ or "timeout" in str(e).lower():
+            dica = " — página não carregou (proxy lento/fora do ar?). Teste o proxy ou tente sem ele." if proxy else " — página não carregou."
+            msg += dica
+        estado, info = ("erro", f"navegador falhou ({msg})")
     finally:
         if display:
             try:
