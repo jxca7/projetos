@@ -161,9 +161,9 @@ def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
     estado = esperar_decisao(page)
     tr.append(f"home={estado}")
 
-    # 2) SEMPRE faz login por usuário e senha (o cookie não vale no navegador aqui),
-    #    a menos que já esteja claramente logado.
-    if estado != "logado" and usuario and senha:
+    # 2) SEMPRE faz login por usuário e senha — o cookie não vale no navegador aqui,
+    #    e o "logado" do aquecimento dá falso positivo com a página meio carregada.
+    if usuario and senha:
         feito = login_senha(page, usuario, senha)
         clicar_texto(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
         estado = esperar_decisao(page)
