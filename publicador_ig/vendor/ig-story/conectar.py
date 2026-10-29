@@ -40,6 +40,9 @@ from aceitar_convite import (  # noqa: E402
 )
 
 TXT_AGORA_NAO = ["Agora não", "Not now", "Not Now"]
+# Marcas da TELA DE LOGIN (não logado): se aparecem, o cookie não valeu na web.
+TXT_LOGIN = ["Esqueceu a senha", "Forgot password", "Criar nova conta",
+             "Create new account", "Telefone, nome de usuário", "Phone number, username"]
 TXT_2FA = ["código de segurança", "security code", "autenticação de dois fatores",
            "two-factor", "insira o código", "enter the code", "confirme que é você",
            "confirm it's you", "verificação"]
@@ -115,19 +118,36 @@ def ir(page, url, tentativas=2):
     raise erro if erro else RuntimeError("navegação falhou")
 
 
+def esperar_decisao(page, timeout_ms=20000):
+    """Espera a home decidir entre LOGIN e LOGADO (a página carrega devagar pelo
+    proxy). Devolve 'login', 'logado' ou 'incerto'."""
+    fim = time.time() + timeout_ms / 1000
+    while time.time() < fim:
+        if pagina_contem(page, TXT_LOGIN):
+            return "login"
+        if pagina_contem(page, TXT_2FA):
+            return "2fa"
+        if esta_logado(page):
+            return "logado"
+        page.wait_for_timeout(800)
+    return "logado" if esta_logado(page) else "incerto"
+
+
 def conectar(page, nome, oauth_url, redirect_prefix):
-    # 1) Aquece: abre o instagram.com com o cookie e confirma o login AQUI (onde
-    #    dá para ver os ícones de home/perfil). A tela do OAuth não tem esses
-    #    ícones, então checar login nela dava falso "não logado".
+    # 1) Aquece: abre o instagram.com com o cookie e espera a home DECIDIR entre
+    #    login e logado (não confia num único check num DOM meio carregado).
     ir(page, URL_HOME)
     clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
-    if not esta_logado(page):
-        if pagina_contem(page, TXT_2FA):
-            return ("2fa", "pediu 2FA/verificação ao abrir o Instagram")
+    estado = esperar_decisao(page)
+    if estado == "2fa":
+        return ("2fa", "pediu 2FA/verificação ao abrir o Instagram")
+    if estado != "logado":
         return (
             "erro",
-            f"o cookie não logou na web (url={page.url[:80]}). "
-            "O combo precisa de sessionid + csrftoken + ds_user_id no cookie.",
+            "o cookie não logou na web (caiu na tela de login). O combo precisa do "
+            "cookie COMPLETO: sessionid + csrftoken + ds_user_id. Só o sessionid não "
+            "basta no navegador. (O convite pelo instagrapi aceita só o sessionid, por "
+            "isso lá funciona e aqui não.)",
         )
 
     # 2) Já logado: abre a URL do OAuth.
