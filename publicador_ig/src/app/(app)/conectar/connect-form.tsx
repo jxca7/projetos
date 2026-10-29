@@ -189,31 +189,31 @@ export function ConnectForm({ initialJobs }: { initialJobs: ConnectJob[] }) {
                   {job.targets.map((t) => {
                     const s = STATUS[t.status];
                     return (
-                      <li key={t.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                        <span className="min-w-0 flex-1 truncate">
-                          @{t.username}
-                          {t.connected && t.connected !== t.username ? (
-                            <span className="text-faint"> → {t.connected}</span>
-                          ) : null}
-                        </span>
-                        {t.error ? (
-                          <span className="hidden max-w-[45%] truncate text-[11px] text-danger sm:inline" title={t.error}>
-                            {t.error}
+                      <li key={t.id} className="px-4 py-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate">
+                            @{t.username}
+                            {t.connected && t.connected !== t.username ? (
+                              <span className="text-faint"> → {t.connected}</span>
+                            ) : null}
                           </span>
-                        ) : null}
-                        <Badge tone={s.tone} dot>
-                          {s.label}
-                        </Badge>
-                        {t.status === "FAILED" || t.status === "SKIPPED_2FA" ? (
-                          <Button
-                            variant="ghost"
-                            type="button"
-                            className="px-2 py-1 text-xs"
-                            disabled={pending}
-                            onClick={() => tentarDeNovo(t.id)}
-                          >
-                            Tentar de novo
-                          </Button>
+                          <Badge tone={s.tone} dot>
+                            {s.label}
+                          </Badge>
+                          {t.status === "FAILED" || t.status === "SKIPPED_2FA" ? (
+                            <Button
+                              variant="ghost"
+                              type="button"
+                              className="px-2 py-1 text-xs"
+                              disabled={pending}
+                              onClick={() => tentarDeNovo(t.id)}
+                            >
+                              Tentar de novo
+                            </Button>
+                          ) : null}
+                        </div>
+                        {t.error ? (
+                          <p className="mt-1 break-words text-[11px] text-danger">{t.error}</p>
                         ) : null}
                       </li>
                     );
