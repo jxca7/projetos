@@ -125,23 +125,71 @@ def esperar_decisao(page, timeout_ms=20000):
     proxy). Devolve 'login', 'logado' ou 'incerto'."""
     fim = time.time() + timeout_ms / 1000
     while time.time() < fim:
-        if pagina_contem(page, TXT_LOGIN):
+        # Campo de senha/usuário na tela = login (sinal mais forte que texto).
+        if tem_form_login(page) or pagina_contem(page, TXT_LOGIN):
             return "login"
         if pagina_contem(page, TXT_2FA):
             return "2fa"
-        if esta_logado(page):
+        # "logado" só se houver marca forte E nenhum form de login.
+        if esta_logado(page) and not tem_form_login(page):
             return "logado"
         page.wait_for_timeout(800)
+    if tem_form_login(page):
+        return "login"
     return "logado" if esta_logado(page) else "incerto"
+
+
+def tem_form_login(page):
+    """Há um campo de usuário/senha visível? (sinal direto de tela de login)."""
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const sel = 'input[name="username"],input[name="email"],input[name="password"],input[type="password"]';
+                    return [...document.querySelectorAll(sel)].some(e => {
+                        const r = e.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    });
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _achar_campo_login(page, timeout_ms=30000):
+    """Espera o campo de usuário aparecer; se for a landing só com 'Entrar',
+    clica e espera de novo; recarrega uma vez se preciso."""
+    seletor = 'input[name="username"], input[name="email"], input[autocomplete="username"]'
+    fim = time.time() + timeout_ms / 1000
+    recarregou = False
+    while time.time() < fim:
+        if tem_form_login(page):
+            try:
+                page.wait_for_selector(seletor, timeout=4000)
+                return True
+            except Exception:
+                pass
+        # Landing só com "Entrar": clica para abrir o formulário.
+        clicar_texto(page, TXT_ENTRAR, timeout_ms=2500)
+        page.wait_for_timeout(1500)
+        if not recarregou and time.time() + 8 > fim:
+            try:
+                page.reload(wait_until="commit", timeout=60000)
+            except Exception:
+                pass
+            recarregou = True
+    return tem_form_login(page)
 
 
 def login_senha(page, usuario, senha):
     """Preenche a tela de login do Instagram com usuário e senha."""
     try:
         ir(page, URL_LOGIN)
-        page.wait_for_selector('input[name="username"]', timeout=20000)
-        page.fill('input[name="username"]', usuario)
-        page.fill('input[name="password"]', senha)
+        if not _achar_campo_login(page):
+            return False
+        page.fill('input[name="username"], input[name="email"], input[autocomplete="username"]', usuario)
+        page.fill('input[name="password"], input[type="password"]', senha)
     except Exception:
         return False
     if not clicar_texto(page, TXT_ENTRAR, timeout_ms=8000):
@@ -149,7 +197,14 @@ def login_senha(page, usuario, senha):
             page.keyboard.press("Enter")
         except Exception:
             pass
-    page.wait_for_timeout(5000)
+    # Espera o form de login SUMIR (sinal de que entrou) ou dar erro/2FA.
+    fim = time.time() + 20
+    while time.time() < fim:
+        if not tem_form_login(page):
+            break
+        if pagina_contem(page, TXT_2FA):
+            break
+        page.wait_for_timeout(1000)
     return True
 
 
