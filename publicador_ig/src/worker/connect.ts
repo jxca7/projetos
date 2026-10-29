@@ -59,14 +59,20 @@ export async function processConnect(data: ConnectJobData): Promise<void> {
       return;
     }
 
-    // Salva o print da falha e põe o link no erro, para a gente ver a tela.
+    // Salva o print da falha COMO MÍDIA (a rota de mídia só serve o que está
+    // registrado) e põe o link no erro, para a gente ver a tela.
     let msgErro = result.message;
     if (result.shotPng && result.shotPng.length > 0) {
       try {
-        const { storage } = await import("@/lib/storage");
-        const key = `connect-shots/${target.id}-${Date.now()}.png`;
-        const stored = await storage().put(key, result.shotPng, "image/png");
-        msgErro = `${result.message} · print: ${stored.publicUrl}`;
+        const { ingestMedia } = await import("@/lib/media/ingest");
+        const { asset } = await ingestMedia({
+          workspaceId: target.job.workspaceId,
+          body: result.shotPng,
+          originalName: `conectar-${target.username}.png`,
+          mimeType: "image/png",
+          usedFor: "LIBRARY",
+        });
+        msgErro = `${result.message} · print: ${asset.publicUrl}`;
       } catch {
         /* sem print não bloqueia */
       }
