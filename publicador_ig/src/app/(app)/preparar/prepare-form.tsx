@@ -59,6 +59,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
   const [storyHighlight, setStoryHighlight] = useState("");
   const [acceptInvite, setAcceptInvite] = useState(false);
   const [proxy, setProxy] = useState("");
+  const [stickyPerAccount, setStickyPerAccount] = useState(true);
   const [accounts, setAccounts] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -131,6 +132,7 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
         storyLinkLabel,
         storyHighlight,
         proxy,
+        stickyPerAccount,
         acceptInvite,
         accounts,
       });
@@ -307,6 +309,19 @@ export function PrepareForm({ initialJobs }: { initialJobs: PrepareJob[] }) {
             placeholder="host:porta  ·  host:porta:user:senha  ·  http://user:senha@host:porta"
             className="w-full font-mono text-xs"
           />
+          <label className="mt-1.5 flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={stickyPerAccount}
+              onChange={(e) => setStickyPerAccount(e.target.checked)}
+              className="mt-0.5 size-4"
+            />
+            <span className="text-[11px] text-muted">
+              <strong>Um IP por conta (IPRoyal sticky).</strong> Cole os dados base{" "}
+              <code>host:porta:usuario:senha</code> — cada conta ganha um IP residencial
+              diferente e fixo. Evita que, se uma cair, caiam todas.
+            </span>
+          </label>
         </label>
 
         <label className="block space-y-1">

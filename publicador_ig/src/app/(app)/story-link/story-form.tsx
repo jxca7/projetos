@@ -53,6 +53,7 @@ export function StoryForm({ initialJobs }: { initialJobs: StoryJob[] }) {
   const [linkLabel, setLinkLabel] = useState("");
   const [highlight, setHighlight] = useState("");
   const [proxy, setProxy] = useState("");
+  const [stickyPerAccount, setStickyPerAccount] = useState(true);
   const [accounts, setAccounts] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -108,7 +109,7 @@ export function StoryForm({ initialJobs }: { initialJobs: StoryJob[] }) {
     }
     setMsg(null);
     startTransition(async () => {
-      const r = await createStoryAppJobAction({ mediaId, link, linkLabel, highlight, proxy, accounts });
+      const r = await createStoryAppJobAction({ mediaId, link, linkLabel, highlight, proxy, stickyPerAccount, accounts });
       if (!r.ok) {
         setMsg({ tone: "danger", text: r.error });
         return;
@@ -210,8 +211,23 @@ export function StoryForm({ initialJobs }: { initialJobs: StoryJob[] }) {
                 placeholder="host:porta  ·  host:porta:user:senha  ·  http://user:senha@host:porta"
                 className="w-full font-mono text-xs"
               />
+              <label className="mt-1.5 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={stickyPerAccount}
+                  onChange={(e) => setStickyPerAccount(e.target.checked)}
+                  className="mt-0.5 size-4"
+                />
+                <span className="text-[11px] text-muted">
+                  <strong>Um IP por conta (IPRoyal sticky).</strong> Cole os dados base{" "}
+                  <code>host:porta:usuario:senha</code> — cada conta ganha um IP residencial
+                  diferente e fixo. Evita que, se uma cair, caiam todas.
+                </span>
+              </label>
               <span className="block text-[11px] text-faint">
-                Use proxy do mesmo país das contas. Vale para todas as contas deste envio.
+                {stickyPerAccount
+                  ? "Ligado: um IP por conta. Ideal para várias contas."
+                  : "Desligado: a mesma proxy para todas as contas deste envio (arriscado para muitas contas)."}
               </span>
             </label>
           </div>

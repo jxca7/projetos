@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { resolveProxyForAccount } from "@/lib/proxy-session";
 
 const PYTHON = process.env.IG_DL_PYTHON || "python3";
 const API_SCRIPT =
@@ -63,8 +64,9 @@ export async function acceptInviteApi(input: AcceptApiInput): Promise<AcceptApiR
   const cookieMode = Boolean(combo);
 
   await fs.writeFile(path.join(dir, "app_id.txt"), input.appId.trim(), "utf8");
-  if (input.proxy?.trim()) {
-    await fs.writeFile(path.join(dir, "proxy.txt"), input.proxy.trim(), { mode: 0o600 });
+  const proxyConta = resolveProxyForAccount(input.proxy, username);
+  if (proxyConta) {
+    await fs.writeFile(path.join(dir, "proxy.txt"), proxyConta, { mode: 0o600 });
   }
 
   if (cookieMode) {

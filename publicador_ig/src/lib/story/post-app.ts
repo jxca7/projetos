@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { resolveProxyForAccount } from "@/lib/proxy-session";
 
 const PYTHON = process.env.IG_DL_PYTHON || "python3";
 const SCRIPT = process.env.IG_STORY_SCRIPT || path.join(process.cwd(), "vendor/ig-story/postar_story.py");
@@ -77,9 +78,10 @@ export async function postStoryApp(input: StoryInput): Promise<StoryResult> {
     "utf8",
   );
   await fs.writeFile(path.join(dir, "destaque.txt"), input.highlight?.trim() ?? "", "utf8");
-  // O script lê proxy.txt da própria pasta (host:porta, host:porta:user:senha ou URL).
-  if (input.proxy?.trim()) {
-    await fs.writeFile(path.join(dir, "proxy.txt"), input.proxy.trim(), { mode: 0o600 });
+  // Um IP por conta: {session} na proxy vira um id fixo desta conta (sticky).
+  const proxyConta = resolveProxyForAccount(input.proxy, username);
+  if (proxyConta) {
+    await fs.writeFile(path.join(dir, "proxy.txt"), proxyConta, { mode: 0o600 });
   }
 
   // Modo COOKIE (combo): a linha inteira vira um arquivo em cookies/<usuario>.txt —

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
+import { buildIproyalSticky } from "@/lib/proxy-session";
 import { requireContext, canEdit, canManageAccounts } from "@/lib/session";
 import { schedulePost, cancelPost, retryFailedTargets, ScheduleError } from "@/lib/publishing/scheduler";
 import { maintenanceQueue, enqueueImport, enqueueStoryApp, enqueuePrepare, enqueuePrepareTest, enqueuePublish } from "@/lib/queue";
@@ -927,6 +928,7 @@ export async function createStoryAppJobAction(input: {
   linkLabel?: string;
   highlight?: string;
   proxy?: string;
+  stickyPerAccount?: boolean;
   accounts: string;
 }) {
   const ctx = await requireContext();
@@ -954,6 +956,10 @@ export async function createStoryAppJobAction(input: {
     };
   }
 
+  // "Um IP por conta": transforma a proxy base do IPRoyal em sticky com {session}
+  // por conta (o worker troca {session} por um id fixo de cada conta).
+  const proxyFinal = input.stickyPerAccount ? buildIproyalSticky(proxy) : proxy;
+
   const asset = await prisma.mediaAsset.findFirst({
     where: { id: input.mediaId, workspaceId: ctx.workspaceId },
   });
@@ -970,7 +976,7 @@ export async function createStoryAppJobAction(input: {
       link: link || null,
       linkLabel: (input.linkLabel ?? "").trim() || null,
       highlight: (input.highlight ?? "").trim() || null,
-      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      proxyEnc: proxyFinal ? encryptSecret(proxyFinal) : null,
       createdById: ctx.userId,
       targets: {
         create: contas.map((c) => ({
@@ -1040,6 +1046,7 @@ export async function createPrepareJobAction(input: {
   storyLinkLabel?: string;
   storyHighlight?: string;
   proxy?: string;
+  stickyPerAccount?: boolean;
   acceptInvite?: boolean;
   accounts: string;
 }) {
@@ -1108,6 +1115,10 @@ export async function createPrepareJobAction(input: {
     };
   }
 
+  // "Um IP por conta": transforma a proxy base do IPRoyal em sticky com {session}
+  // por conta (o worker troca {session} por um id fixo de cada conta).
+  const proxyFinal = input.stickyPerAccount ? buildIproyalSticky(proxy) : proxy;
+
   const job = await prisma.prepareJob.create({
     data: {
       workspaceId: ctx.workspaceId,
@@ -1120,7 +1131,7 @@ export async function createPrepareJobAction(input: {
       storyLinkLabel: storyImageKey ? (input.storyLinkLabel ?? "").trim() || null : null,
       storyHighlight: storyImageKey ? (input.storyHighlight ?? "").trim() || null : null,
       acceptInvite,
-      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      proxyEnc: proxyFinal ? encryptSecret(proxyFinal) : null,
       createdById: ctx.userId,
       targets: {
         create: contas.map((c) => ({
@@ -1182,6 +1193,7 @@ export async function clearPrepareJobsAction() {
 export async function createPrepareTestJobAction(input: {
   appId: string;
   proxy?: string;
+  stickyPerAccount?: boolean;
   accounts: string;
 }) {
   const ctx = await requireContext();
@@ -1208,11 +1220,15 @@ export async function createPrepareTestJobAction(input: {
     };
   }
 
+  // "Um IP por conta": transforma a proxy base do IPRoyal em sticky com {session}
+  // por conta (o worker troca {session} por um id fixo de cada conta).
+  const proxyFinal = input.stickyPerAccount ? buildIproyalSticky(proxy) : proxy;
+
   const job = await prisma.prepareTestJob.create({
     data: {
       workspaceId: ctx.workspaceId,
       appId,
-      proxyEnc: proxy ? encryptSecret(proxy) : null,
+      proxyEnc: proxyFinal ? encryptSecret(proxyFinal) : null,
       createdById: ctx.userId,
       targets: {
         create: contas.map((c) => ({

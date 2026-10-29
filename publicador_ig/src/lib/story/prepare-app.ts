@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { resolveProxyForAccount } from "@/lib/proxy-session";
 
 const PYTHON = process.env.IG_DL_PYTHON || "python3";
 const PREP_SCRIPT = process.env.IG_PREPARE_SCRIPT || path.join(process.cwd(), "vendor/ig-story/preparar.py");
@@ -79,8 +80,9 @@ export async function prepareAccount(input: PrepareInput): Promise<PrepareResult
     );
     await fs.writeFile(path.join(dir, "destaque.txt"), input.storyHighlight?.trim() ?? "", "utf8");
   }
-  if (input.proxy?.trim()) {
-    await fs.writeFile(path.join(dir, "proxy.txt"), input.proxy.trim(), { mode: 0o600 });
+  const proxyConta = resolveProxyForAccount(input.proxy, username);
+  if (proxyConta) {
+    await fs.writeFile(path.join(dir, "proxy.txt"), proxyConta, { mode: 0o600 });
   }
 
   if (cookieMode) {
