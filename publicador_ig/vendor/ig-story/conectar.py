@@ -316,67 +316,93 @@ def aprovar_login(page):
     return "nada"
 
 
-def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha, tem_cookie):
-    tr = []  # trilha dos passos, para aparecer no erro
-    # 1) Aquece: abre o instagram.com. Com cookie, já loga (sem 2FA). Espera decidir.
-    ir(page, URL_HOME)
-    clicar_real(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
-    estado = esperar_decisao(page)
-    tr.append(f"home={estado}")
+def esperar_liberar(page, timeout_ms=60000):
+    """Na sessão A: espera a verificação liberar depois que B aprovou. Clica
+    'Continuar'/'OK' se aparecer. Devolve True se ficou logado."""
+    fim = time.time() + timeout_ms / 1000
+    while time.time() < fim:
+        clicar_real(page, ["Continuar", "Continue", "OK", "Entendi", "Dispensar"], timeout_ms=1500)
+        if not tem_form_login(page) and esta_logado(page):
+            return True
+        page.wait_for_timeout(2500)
+    return not tem_form_login(page) and esta_logado(page)
 
-    # 2) Se o cookie não logou, cai para usuário e senha.
-    if estado != "logado" and usuario and senha:
-        diag = login_senha(page, usuario, senha)
-        clicar_real(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
-        estado = esperar_decisao(page)
-        tr.append(f"login={diag}->{estado}")
 
-    if estado == "2fa":
-        return ("2fa", f"pediu 2FA/verificação no login [{' '.join(tr)}]")
-    if estado != "logado":
-        motivo = erro_de_login(page)
-        extra = f" — Instagram: '{motivo}'" if motivo else ""
-        return ("erro", f"não logou{extra} [{' '.join(tr)}]")
+def conectar(browser, nome, oauth_url, redirect_prefix, usuario, senha, cookie, ua, make_ctx):
+    """Duas sessões: A (login+senha) dispara a verificação; B (cookie) aprova
+    "Foi você"; A destrava e faz o OAuth. make_ctx() cria um contexto novo."""
+    tr = []
+    if not usuario or not senha:
+        return ("erro", "sem usuário:senha para o login", None)
 
-    # 3) Aprova o login novo ("Foi você?") — deixa a sessão confiável para o OAuth.
-    aprov = aprovar_login(page)
-    tr.append(f"aprovar={aprov}")
+    # --- Sessão A: login por usuário e senha (dispara o pedido de verificação) ---
+    ctxA = make_ctx()
+    pageA = ctxA.new_page()
+    diagA = login_senha(pageA, usuario, senha)
+    clicar_real(pageA, TXT_AGORA_NAO, timeout_ms=2500)
+    estadoA = esperar_decisao(pageA)
+    tr.append(f"A:login={diagA}->{estadoA}")
 
-    # 4) Abre a URL do OAuth.
+    # Se A já logou direto (sem pedir verificação), nem precisa aprovar.
+    if estadoA != "logado":
+        # --- Sessão B: cookie aprova a notificação "Foi você" ---
+        if cookie:
+            ctxB = make_ctx()
+            ctxB.add_cookies(cookies_para_browser(cookie))
+            pageB = ctxB.new_page()
+            ir(pageB, URL_HOME)
+            clicar_real(pageB, TXT_AGORA_NAO, timeout_ms=2500)
+            aprov = aprovar_login(pageB)
+            tr.append(f"B:aprovar={aprov}")
+            try:
+                pageB.screenshot(path=str(PASTA / "aprovar.png"))
+            except Exception:
+                pass
+            try:
+                ctxB.close()
+            except Exception:
+                pass
+        else:
+            tr.append("B:sem-cookie")
+
+        # --- Volta à A: espera a verificação liberar após a aprovação ---
+        liberou = esperar_liberar(pageA)
+        tr.append(f"A:pos={'logado' if liberou else 'preso'}")
+        if not liberou:
+            return ("erro", f"a verificação não liberou após aprovar [{' '.join(tr)}]", pageA)
+
+    page = pageA  # daqui pra frente o fluxo do OAuth é na sessão A, já logada.
+
+    # Abre a URL do OAuth.
     ir(page, oauth_url)
     page.wait_for_timeout(2000)
-    # Se o OAuth AINDA mostra login, tenta aprovar de novo e recarregar.
     if pagina_contem(page, TXT_LOGIN) or tem_form_login(page):
-        aprovar_login(page)
-        ir(page, oauth_url)
-        page.wait_for_timeout(2000)
-        if pagina_contem(page, TXT_LOGIN) or tem_form_login(page):
-            return ("erro", f"OAuth voltou pro login (não consegui aprovar o login novo) [{' '.join(tr)}]")
+        return ("erro", f"OAuth voltou pro login [{' '.join(tr)}]", page)
 
     # Às vezes o code volta na hora (app já autorizado antes): tenta capturar já.
     code = capturar_code(page, redirect_prefix, timeout_ms=2500)
     if code:
-        return ("ok", code)
+        return ("ok", code, page)
 
     # Percorre a sequência de telas até o Permitir (clique REAL, por causa do React).
     for passo in PASSOS:
         if pagina_contem(page, TXT_2FA):
-            return ("2fa", "pediu 2FA/verificação no meio do fluxo")
+            return ("2fa", "pediu 2FA/verificação no meio do fluxo", page)
         clicou = clicar_real(page, passo["textos"], timeout_ms=6000 if passo.get("obrigatorio") else 3500)
         if clicou:
             page.wait_for_timeout(1500)
             code = capturar_code(page, redirect_prefix, timeout_ms=2500)
             if code:
-                return ("ok", code)
+                return ("ok", code, page)
         elif passo.get("obrigatorio"):
             botoes = " | ".join(textos_clicaveis(page))
-            return ("erro", f"não achei o botão '{passo['nome']}'. Botões: {botoes} [{' '.join(tr)}]")
+            return ("erro", f"não achei o botão '{passo['nome']}'. Botões: {botoes} [{' '.join(tr)}]", page)
 
     # Depois do Permitir, dá um tempo para o redirect sair.
     code = capturar_code(page, redirect_prefix, timeout_ms=15000)
     if code:
-        return ("ok", code)
-    return ("erro", f"cliquei tudo mas não veio o code (url={page.url[:80]})")
+        return ("ok", code, page)
+    return ("erro", f"cliquei tudo mas não veio o code (url={page.url[:80]}) [{' '.join(tr)}]", page)
 
 
 def parse_user_pass(texto):
@@ -413,6 +439,7 @@ def main():
     display = iniciar_display()
     headful = display is not None
     estado, info = ("erro", "falha desconhecida")
+    cookie_ok = cookie if (cookie and "sessionid=" in cookie.lower()) else None
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(
@@ -420,24 +447,23 @@ def main():
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
                 proxy=proxy,
             )
-            ctx = browser.new_context(user_agent=ua or None, locale="pt-BR")
-            tem_cookie = bool(cookie and "sessionid=" in cookie.lower())
-            if tem_cookie:
-                ctx.add_cookies(cookies_para_browser(cookie))
-            page = ctx.new_page()
+
+            def make_ctx():
+                return browser.new_context(user_agent=ua or None, locale="pt-BR")
+
+            page = None
             try:
-                estado, info = conectar(
-                    page, nome, oauth_url, redirect_prefix, usuario, senha, tem_cookie
+                estado, info, page = conectar(
+                    browser, nome, oauth_url, redirect_prefix, usuario, senha, cookie_ok, ua, make_ctx
                 )
             finally:
-                # Na falha, salva um print para a gente VER o que estava na tela.
-                if estado != "ok":
+                # Na falha, salva um print da sessão A para a gente VER a tela.
+                if estado != "ok" and page is not None:
                     try:
                         page.screenshot(path=str(PASTA / "erro.png"), full_page=False)
                     except Exception:
                         pass
                 try:
-                    ctx.close()
                     browser.close()
                 except Exception:
                     pass
