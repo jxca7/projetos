@@ -30,6 +30,7 @@ from aceitar_convite import (  # noqa: E402
     PASTA,
     URL_HOME,
     parse_combo,
+    cookies_para_browser,
     ler_proxy,
     clicar_texto,
     esta_logado,
@@ -42,6 +43,11 @@ from aceitar_convite import (  # noqa: E402
 TXT_AGORA_NAO = ["Agora não", "Not now", "Not Now"]
 TXT_ENTRAR = ["Entrar", "Log in", "Log In"]
 URL_LOGIN = "https://www.instagram.com/accounts/login/"
+# Aprovar o login novo ("Foi você?") para a sessão virar confiável para o OAuth.
+TXT_FOI_VOCE = ["Foi você", "Sim, fui eu", "Fui eu", "Sim", "It was me",
+                "This was me", "Yes, it was me", "Was me", "Confirmar"]
+TXT_NOTIF_LOGIN = ["Novo login", "nova tentativa de login", "Tentativa de login",
+                   "New login", "login attempt", "entrou na sua conta", "Verifique"]
 # Marcas da TELA DE LOGIN (não logado): se aparecem, o cookie não valeu na web.
 TXT_LOGIN = ["Esqueceu a senha", "Forgot password", "Criar nova conta",
              "Create new account", "Telefone, nome de usuário", "Phone number, username"]
@@ -287,37 +293,65 @@ def erro_de_login(page):
     return None
 
 
-def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
+def aprovar_login(page):
+    """Aprova o login novo ('Foi você?') para a sessão virar confiável no OAuth.
+    Tenta o prompt inline, e depois pelas notificações (o coração)."""
+    # 1) Prompt inline, que às vezes aparece direto após logar.
+    for _ in range(2):
+        if clicar_real(page, TXT_FOI_VOCE, timeout_ms=3500):
+            page.wait_for_timeout(2000)
+            return "inline"
+        page.wait_for_timeout(1500)
+    # 2) Notificações (coração): abre e procura a notificação de login.
+    try:
+        clicar_real(page, ["Notificações", "Notifications", "Atividade", "Activity"], timeout_ms=3000)
+        page.wait_for_timeout(2000)
+        clicar_real(page, TXT_NOTIF_LOGIN, timeout_ms=3500)
+        page.wait_for_timeout(1500)
+        if clicar_real(page, TXT_FOI_VOCE, timeout_ms=3500):
+            page.wait_for_timeout(2000)
+            return "notif"
+    except Exception:
+        pass
+    return "nada"
+
+
+def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha, tem_cookie):
     tr = []  # trilha dos passos, para aparecer no erro
-    # 1) Aquece: abre o instagram.com (o cookie pode já logar). Espera decidir.
+    # 1) Aquece: abre o instagram.com. Com cookie, já loga (sem 2FA). Espera decidir.
     ir(page, URL_HOME)
-    clicar_texto(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
+    clicar_real(page, TXT_AGORA_NAO, timeout_ms=2500)  # fecha pop-ups "Agora não"
     estado = esperar_decisao(page)
     tr.append(f"home={estado}")
 
-    # 2) SEMPRE faz login por usuário e senha — o cookie não vale no navegador aqui,
-    #    e o "logado" do aquecimento dá falso positivo com a página meio carregada.
-    if usuario and senha:
+    # 2) Se o cookie não logou, cai para usuário e senha.
+    if estado != "logado" and usuario and senha:
         diag = login_senha(page, usuario, senha)
-        clicar_texto(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
+        clicar_real(page, TXT_AGORA_NAO, timeout_ms=3000)  # "Salvar informações? Agora não"
         estado = esperar_decisao(page)
         tr.append(f"login={diag}->{estado}")
 
     if estado == "2fa":
         return ("2fa", f"pediu 2FA/verificação no login [{' '.join(tr)}]")
     if estado != "logado":
-        if not usuario or not senha:
-            return ("erro", f"não logou e sem usuário:senha [{' '.join(tr)}]")
         motivo = erro_de_login(page)
         extra = f" — Instagram: '{motivo}'" if motivo else ""
-        return ("erro", f"não logou com usuário e senha{extra} [{' '.join(tr)}]")
+        return ("erro", f"não logou{extra} [{' '.join(tr)}]")
 
-    # 3) Já logado: abre a URL do OAuth.
+    # 3) Aprova o login novo ("Foi você?") — deixa a sessão confiável para o OAuth.
+    aprov = aprovar_login(page)
+    tr.append(f"aprovar={aprov}")
+
+    # 4) Abre a URL do OAuth.
     ir(page, oauth_url)
     page.wait_for_timeout(2000)
-    # Se o OAuth AINDA mostra login, a sessão não ficou de pé.
-    if pagina_contem(page, TXT_LOGIN):
-        return ("erro", f"abri o OAuth mas voltou pro login (sessão não ficou logada) [{' '.join(tr)}]")
+    # Se o OAuth AINDA mostra login, tenta aprovar de novo e recarregar.
+    if pagina_contem(page, TXT_LOGIN) or tem_form_login(page):
+        aprovar_login(page)
+        ir(page, oauth_url)
+        page.wait_for_timeout(2000)
+        if pagina_contem(page, TXT_LOGIN) or tem_form_login(page):
+            return ("erro", f"OAuth voltou pro login (não consegui aprovar o login novo) [{' '.join(tr)}]")
 
     # Às vezes o code volta na hora (app já autorizado antes): tenta capturar já.
     code = capturar_code(page, redirect_prefix, timeout_ms=2500)
@@ -360,11 +394,12 @@ def main():
         print("✘ nenhuma conta informada")
         return 1
     texto = arq.read_text(encoding="utf-8-sig").strip()
-    _, ua = parse_combo(texto)  # cookie não usado aqui (login é por senha)
+    cookie, ua = parse_combo(texto)
     usuario, senha = parse_user_pass(texto)
-    # Conectar usa login por usuário e senha (o cookie não loga no navegador aqui).
-    if not usuario or not senha:
-        print("✘ o combo não tem usuário:senha (necessário para o login no navegador)")
+    # Fluxo: loga pelo COOKIE (sem 2FA) e aprova a notificação de login; cai para
+    # usuário:senha só se não houver cookie.
+    if (not cookie or "sessionid=" not in cookie.lower()) and (not usuario or not senha):
+        print("✘ o combo precisa do cookie (sessionid) ou de usuário:senha")
         return 1
 
     oauth_url = ler("oauth_url.txt")
@@ -385,13 +420,15 @@ def main():
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
                 proxy=proxy,
             )
-            # NÃO injeta o cookie: ele cria um estado "meio-logado" que esconde o
-            # formulário de login e trava a senha, mas é inválido pro OAuth.
-            # Navegador limpo -> login por senha limpo -> sessão válida pro OAuth.
             ctx = browser.new_context(user_agent=ua or None, locale="pt-BR")
+            tem_cookie = bool(cookie and "sessionid=" in cookie.lower())
+            if tem_cookie:
+                ctx.add_cookies(cookies_para_browser(cookie))
             page = ctx.new_page()
             try:
-                estado, info = conectar(page, nome, oauth_url, redirect_prefix, usuario, senha)
+                estado, info = conectar(
+                    page, nome, oauth_url, redirect_prefix, usuario, senha, tem_cookie
+                )
             finally:
                 # Na falha, salva um print para a gente VER o que estava na tela.
                 if estado != "ok":
