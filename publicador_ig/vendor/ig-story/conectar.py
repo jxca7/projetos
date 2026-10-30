@@ -14,6 +14,7 @@ e captura o `code` que a Meta devolve no redirect. Imprime:
   ⏭ <nome>: ...             (2FA/verificação)
   ✘ <nome>: <motivo>
 """
+import re
 import sys
 import time
 from pathlib import Path
@@ -181,6 +182,29 @@ def _achar_campo_login(page, timeout_ms=30000):
     return tem_form_login(page)
 
 
+def clicar_real(page, textos, timeout_ms=5000):
+    """Clique REAL (mouse de verdade) num botão/elemento com um dos textos — o
+    React do IG não reage ao .click() sintético do DOM."""
+    padrao = "|".join(re.escape(t) for t in textos)
+    rx = re.compile(rf"^\s*({padrao})\s*$", re.I)
+    tentativas = [
+        lambda: page.get_by_role("button", name=rx).first.click(timeout=timeout_ms),
+        lambda: page.get_by_role("radio", name=rx).first.click(timeout=timeout_ms),
+        lambda: page.get_by_text(rx).first.click(timeout=timeout_ms),
+    ]
+    for t in tentativas:
+        try:
+            t()
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def clicar_entrar_real(page):
+    return clicar_real(page, ["Entrar", "Log in", "Log In"])
+
+
 def login_senha(page, usuario, senha):
     """Preenche a tela de login do Instagram com usuário e senha."""
     sel_user = 'input[name="username"], input[name="email"], input[autocomplete="username"]'
@@ -227,16 +251,16 @@ def login_senha(page, usuario, senha):
         diag.append(f"user={vals['uLen']}ch pass={vals['pLen']}ch btnOff={vals['btnDisabled']}")
     except Exception as e:
         return f"erro-preencher({type(e).__name__})"
-    # Envia: Enter com o foco no campo de senha é o mais confiável (o IG não usa
-    # button[type=submit]). Reforça com o clique no "Entrar" se ainda estiver lá.
-    try:
-        page.focus(sel_pass)
-        page.keyboard.press("Enter")
-    except Exception:
-        pass
-    page.wait_for_timeout(2500)
+    # Envia com CLIQUE REAL do Playwright no botão "Entrar" (o .click() sintético
+    # do DOM não dispara o React do IG). Fallback: Enter no campo de senha.
+    clicar_entrar_real(page)
+    page.wait_for_timeout(3000)
     if tem_form_login(page):
-        clicar_texto(page, TXT_ENTRAR, timeout_ms=5000)
+        try:
+            page.focus(sel_pass)
+            page.keyboard.press("Enter")
+        except Exception:
+            pass
     # Espera o form SUMIR (entrou) ou dar erro/2FA.
     fim = time.time() + 25
     while time.time() < fim:
@@ -300,11 +324,11 @@ def conectar(page, nome, oauth_url, redirect_prefix, usuario, senha):
     if code:
         return ("ok", code)
 
-    # Percorre a sequência de telas até o Permitir.
+    # Percorre a sequência de telas até o Permitir (clique REAL, por causa do React).
     for passo in PASSOS:
         if pagina_contem(page, TXT_2FA):
             return ("2fa", "pediu 2FA/verificação no meio do fluxo")
-        clicou = clicar_texto(page, passo["textos"], timeout_ms=6000 if passo.get("obrigatorio") else 3500)
+        clicou = clicar_real(page, passo["textos"], timeout_ms=6000 if passo.get("obrigatorio") else 3500)
         if clicou:
             page.wait_for_timeout(1500)
             code = capturar_code(page, redirect_prefix, timeout_ms=2500)
